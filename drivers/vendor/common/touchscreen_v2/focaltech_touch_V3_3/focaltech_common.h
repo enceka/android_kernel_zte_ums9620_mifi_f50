@@ -104,6 +104,8 @@
 #define FTS_REG_MODULE_ID                   0xE3
 #define FTS_REG_LIC_VER                     0xE4
 #define FTS_REG_ESD_SATURATE                0xED
+#define FTS_REG_REPORT_RATE                 0x88
+#define FTS_REG_INT_OUT_TEST                0x08
 
 #define FTS_SYSFS_ECHO_ON(buf)      (buf[0] == '1')
 #define FTS_SYSFS_ECHO_OFF(buf)     (buf[0] == '0')
@@ -155,16 +157,33 @@ struct ts_ic_info {
 * DEBUG function define here
 *****************************************************************************/
 #if FTS_DEBUG_EN
-#define FTS_DEBUG(fmt, args...)  pr_info("[FTS_TS]%s:"fmt"\n", __func__, ##args)
-#define FTS_FUNC_ENTER() pr_info("[FTS_TS]%s: Enter\n", __func__)
-#define FTS_FUNC_EXIT() pr_info("[FTS_TS]%s: Exit(%d)\n", __func__, __LINE__)
-#else /* #if FTS_DEBUG_EN */
+#define FTS_DEBUG(fmt, args...) do { \
+    pr_info("[ZTE_LDD_TP][TPD_FTS_TS/D]%s:"fmt"\n", __func__, ##args); \
+    tpd_save_last_log("[ZTE_LDD_TP][TPD_FTS_TS/D]%s:"fmt"\n", __func__, ##args);\
+} while (0)
+
+#define FTS_FUNC_ENTER() do { \
+    pr_info("[ZTE_LDD_TP][TPD_FTS_TS/D]%s: Enter\n", __func__); \
+    tpd_save_last_log("[ZTE_LDD_TP][TPD_FTS_TS/D]%s: Enter\n", __func__); \
+} while (0)
+
+#define FTS_FUNC_EXIT() do { \
+    pr_info("[ZTE_LDD_TP][TPD_FTS_TS/D]%s: Exit(%d)\n", __func__, __LINE__); \
+    tpd_save_last_log("[ZTE_LDD_TP][TPD_FTS_TS/D]%s: Exit(%d)\n", __func__, __LINE__); \
+} while (0)
+#else /* #if FTS_DEBUG_EN*/
 #define FTS_DEBUG(fmt, args...)
 #define FTS_FUNC_ENTER()
 #define FTS_FUNC_EXIT()
 #endif
 
-#define FTS_INFO(fmt, args...) pr_info("[FTS_TS/I]%s:"fmt"\n", __func__, ##args)
+#define FTS_INFO(fmt, args...) do { \
+    pr_info("[ZTE_LDD_TP][TPD_FTS_TS/I]%s:"fmt"\n", __func__, ##args); \
+    tpd_save_last_log("[ZTE_LDD_TP][TPD_FTS_TS/I]%s:"fmt"\n", __func__, ##args); \
+} while (0)
 
-#define FTS_ERROR(fmt, args...) pr_err("[FTS_TS/E]%s:"fmt"\n", __func__, ##args)
+#define FTS_ERROR(fmt, args...) do { \
+    pr_err("[ZTE_LDD_TP][TPD_FTS_TS/E]%s:"fmt"\n", __func__, ##args); \
+    tpd_save_last_log("[ZTE_LDD_TP][TPD_FTS_TS/E]%s:"fmt"\n", __func__, ##args); \
+} while (0)
 #endif /* __LINUX_FOCALTECH_COMMON_H__ */

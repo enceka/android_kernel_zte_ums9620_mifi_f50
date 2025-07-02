@@ -78,7 +78,7 @@
 
 #define RMI_UBL_FN_NUMBER 0x35
 
-#define OVT_TP_DRIVER_VERSION	"v2022-9-23"
+#define OVT_TP_DRIVER_VERSION	"v2024-4-15"
 
 extern void ominivision_tpd_register_fw_class(struct ovt_tcm_hcd *tcm_hcd);
 extern int device_module_init(void);
@@ -96,6 +96,32 @@ struct ovt_tcm_hcd *g_tcm_hcd;
 #if SPEED_UP_RESUME
 static void speedup_resume(struct work_struct *work);
 #endif
+
+#define ovt_tcm_set_func_en(c_name, id) \
+int ovt_tcm_set_func_##c_name##_en_state(unsigned short value) \
+{ \
+	int retval = 0; \
+	struct ovt_tcm_hcd *tcm_hcd = g_tcm_hcd; \
+\
+	if ((!tcm_hcd) || (tcm_hcd->ovt_tcm_driver_removing)) { \
+		ovt_info(ERR_LOG, "tcm shutdown, do not %s\n", #c_name); \
+		return 0; \
+	} \
+	if (IS_NOT_FW_MODE(tcm_hcd->id_info.mode) || tcm_hcd->in_suspend || atomic_read(&tcm_hcd->host_downloading)) { \
+\
+	} else { \
+		retval = tcm_hcd->set_dynamic_config(tcm_hcd, id, value); \
+		if (retval != 0) { \
+			ovt_info(ERR_LOG, "Failed to set %s command\n", #c_name); \
+		} \
+	} \
+	return retval; \
+} \
+
+ovt_tcm_set_func_en(face_detect, DC_ENABLE_FACE)
+
+EXPORT_SYMBOL(ovt_tcm_set_func_face_detect_en_state);
+
 #define dynamic_config_sysfs(c_name, id) \
 static ssize_t ovt_tcm_sysfs_##c_name##_show(struct device *dev, \
 		struct device_attribute *attr, char *buf) \
@@ -1115,7 +1141,7 @@ static void ovt_tcm_dispatch_message(struct ovt_tcm_hcd *tcm_hcd)
 		ovt_tcm_dispatch_report(tcm_hcd);
 	else
 		ovt_tcm_dispatch_response(tcm_hcd);
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(DEBUG_LOG, "exit!\n");
 }
 
 /**
@@ -1483,7 +1509,6 @@ static int ovt_tcm_read_message(struct ovt_tcm_hcd *tcm_hcd,
 	unsigned int total_length;
 	struct ovt_tcm_message_header *header;
 
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
 	mutex_lock(&tcm_hcd->rw_ctrl_mutex);
 
 	if (in_buf != NULL) {
@@ -1570,6 +1595,7 @@ retry:
 					usleep_range(READ_RETRY_US_MIN,
 							READ_RETRY_US_MAX);
 					retry = false;
+					UNLOCK_BUFFER(tcm_hcd->in);
 					goto retry;
 				} else {
 					tcm_hcd->payload_length = 0;
@@ -1645,7 +1671,6 @@ exit:
 		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
 	}
 
-	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
 	return retval;
 }
 
@@ -2048,10 +2073,6 @@ static irqreturn_t ovt_tcm_isr(int irq, void *data)
 	struct ovt_tcm_hcd *tcm_hcd = data;
 	const struct ovt_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
 
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
-	if (tpd_cdev->ignore_tp_irq) {
-		goto exit;
-	}
 	if (unlikely(gpio_get_value(bdata->irq_gpio) != bdata->irq_on_state))
 		goto exit;
 
@@ -2061,7 +2082,22 @@ static irqreturn_t ovt_tcm_isr(int irq, void *data)
 		msleep(5);
 		goto exit;
 	}
-
+#ifdef CONFIG_PM
+	if (tcm_hcd->in_suspend && tcm_hcd->pm_suspend) {
+		retval = wait_for_completion_timeout(
+					&tcm_hcd->pm_completion,
+					msecs_to_jiffies(ZTP_TIMEOUT_COMERR_PM));
+		if (!retval) {
+			ovt_info(ERR_LOG,"Bus don't resume from pm(deep),timeout,skip irq");
+			return IRQ_HANDLED;
+		}
+	}
+#endif
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	if (tcm_hcd->ovt_proximity_enable) {
+		__pm_wakeup_event(tp_wakeup, 2000);
+	}
+#endif
 	retval = tcm_hcd->read_message(tcm_hcd,
 			NULL,
 			0);
@@ -2076,7 +2112,6 @@ static irqreturn_t ovt_tcm_isr(int irq, void *data)
 	}
 
 exit:
-	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
 	return IRQ_HANDLED;
 }
 
@@ -2085,7 +2120,6 @@ static int ovt_tcm_enable_irq(struct ovt_tcm_hcd *tcm_hcd, bool en, bool ns)
 	int retval;
 	const struct ovt_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
 	static bool irq_freed = true;
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
 	mutex_lock(&tcm_hcd->irq_en_mutex);
 	ovt_info(INFO_LOG, "%s:start:irq_enabled=%d, en=%d\n", __func__, tcm_hcd->irq_enabled, en);
 	if (en) {
@@ -2167,7 +2201,7 @@ exit:
 
 	ovt_info(INFO_LOG, "%s:end:irq_enabled=%d, en=%d\n", __func__, tcm_hcd->irq_enabled, en);
 	mutex_unlock(&tcm_hcd->irq_en_mutex);
-	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
+
 	return retval;
 }
 
@@ -2177,7 +2211,6 @@ static int ovt_tcm_set_gpio(struct ovt_tcm_hcd *tcm_hcd, int gpio,
 	int retval;
 	char label[16];
 
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
 	if (config) {
 		retval = snprintf(label, 16, "tcm_gpio_%d\n", gpio);
 		if (retval < 0) {
@@ -2222,7 +2255,6 @@ static int ovt_tcm_config_gpio(struct ovt_tcm_hcd *tcm_hcd)
 	int retval;
 	const struct ovt_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
 
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
 	if (bdata->irq_gpio >= 0) {
 		retval = ovt_tcm_set_gpio(tcm_hcd, bdata->irq_gpio,
 				true, 0, 0);
@@ -2276,7 +2308,7 @@ static int ovt_tcm_config_gpio(struct ovt_tcm_hcd *tcm_hcd)
 			bdata->reset_gpio, !bdata->reset_on_state);
 		msleep(bdata->reset_delay_ms);
 	}
-	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
+
 	return 0;
 
 err_set_gpio_reset:
@@ -2296,7 +2328,6 @@ static int ovt_tcm_enable_regulator(struct ovt_tcm_hcd *tcm_hcd, bool en)
 	int retval;
 	const struct ovt_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
 
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
 	if (!en) {
 		retval = 0;
 		goto disable_pwr_reg;
@@ -2329,7 +2360,6 @@ static int ovt_tcm_enable_regulator(struct ovt_tcm_hcd *tcm_hcd, bool en)
 		ovt_info(INFO_LOG, "%s:Not use pwr_reg\n", __func__);
 	}
 
-	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
 	return 0;
 
 disable_pwr_reg:
@@ -2349,7 +2379,6 @@ static int ovt_tcm_get_regulator(struct ovt_tcm_hcd *tcm_hcd, bool get)
 	int retval;
 	const struct ovt_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
 
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
 	if (!get) {
 		retval = 0;
 		goto regulator_put;
@@ -2385,7 +2414,6 @@ static int ovt_tcm_get_regulator(struct ovt_tcm_hcd *tcm_hcd, bool get)
 		ovt_info(INFO_LOG, "%s:Not use pwr_reg\n", __func__);
 	}
 
-	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
 	return 0;
 
 regulator_put:
@@ -3101,7 +3129,7 @@ static int ovt_tcm_sleep(struct ovt_tcm_hcd *tcm_hcd, bool en)
 
 exit:
 	kfree(resp_buf);
-
+	ovt_info(DEBUG_LOG, "exit!\n");
 	return retval;
 }
 
@@ -3113,7 +3141,7 @@ static int ovt_tcm_reset(struct ovt_tcm_hcd *tcm_hcd)
 	unsigned int resp_length;
 	const struct ovt_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
 
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(DEBUG_LOG, "enter!\n");
 	retval = tcm_hcd->write_message(tcm_hcd,
 				CMD_RESET,
 				NULL,
@@ -3128,7 +3156,7 @@ static int ovt_tcm_reset(struct ovt_tcm_hcd *tcm_hcd)
 				"Failed to write command %s\n",
 				STR(CMD_RESET));
 	}
-
+	ovt_info(DEBUG_LOG, "exit!\n");
 	return retval;
 }
 
@@ -3404,7 +3432,7 @@ static void ovt_tcm_helper_work(struct work_struct *work)
 			ovt_info(ERR_LOG,
 					"Failed to initialze touch reporting\n");
 			tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-			mutex_unlock(&tcm_hcd->reset_mutex);		
+			mutex_unlock(&tcm_hcd->reset_mutex);
 			gpio_set_value(bdata->reset_gpio, 0);
 			msleep(5);
 			gpio_set_value(bdata->reset_gpio, 1);
@@ -3460,8 +3488,16 @@ int ovt_tcm_resume(struct device *dev)
 	struct ovt_tcm_module_handler *mod_handler;
 	struct ovt_tcm_hcd *tcm_hcd = dev_get_drvdata(dev);
 
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
-	if (!tcm_hcd->in_suspend  || tcm_hcd->ovt_tcm_driver_removing)
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	ovt_info(INFO_LOG, "%s ovt_proximity_state is %d \n", __func__, tcm_hcd->ovt_proximity_state);
+	if(tcm_hcd->ovt_proximity_state) {
+		tcm_hcd->ovt_proximity_state = 0;
+		ovt_info(INFO_LOG, "%s ovt_proximity resume after report near \n", __func__);
+	}
+#endif
+
+	if (!tcm_hcd->in_suspend || tcm_hcd->ovt_tcm_driver_removing)
 		return 0;
 
 	if (tcm_hcd->in_hdl_mode) {
@@ -3662,7 +3698,19 @@ int ovt_tcm_suspend(struct device *dev)
 	struct ovt_tcm_module_handler *mod_handler;
 	struct ovt_tcm_hcd *tcm_hcd = dev_get_drvdata(dev);
 
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
+#ifdef CONFIG_TOUCHSCREEN_POINT_REPORT_CHECK
+	cancel_delayed_work_sync(&tpd_cdev->point_report_check_work);
+#endif
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	ovt_info(INFO_LOG, "%s ovt_proximity_state is %d \n", __func__, tcm_hcd->ovt_proximity_state);
+	if(tcm_hcd->ovt_proximity_state) {
+		tcm_hcd->ovt_proximity_suspended = true;
+		cancel_delayed_work_sync(&tpd_cdev->send_cmd_work);
+		ovt_info(INFO_LOG, "%s ovt_proximity report near return \n", __func__);
+		return 0;
+	}
+#endif
 	if (tcm_hcd->in_suspend || tcm_hcd->ovt_tcm_driver_removing)
 		return 0;
 
@@ -4376,7 +4424,11 @@ prepare_modules:
 	mod_pool.tcm_hcd = tcm_hcd;
 	mod_pool.queue_work = true;
 	queue_work(mod_pool.workqueue, &mod_pool.work);
-
+#ifdef CONFIG_PM
+	init_completion(&tcm_hcd->pm_completion);
+	tcm_hcd->pm_suspend = false;
+#endif
+	tpd_cdev->tp_chip_id = TS_CHIP_OMNIVISION;
 	ovt_info(INFO_LOG, "%s exit!\n", __func__);
 	return 0;
 
@@ -4454,6 +4506,8 @@ err_alloc_mem:
 	RELEASE_BUFFER(tcm_hcd->in);
 
 	kfree(tcm_hcd);
+
+	tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_OMNIVISION;
 
 	return retval;
 }
@@ -4567,25 +4621,29 @@ static int ovt_tcm_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-#if !defined(CONFIG_DRM) && !defined(CONFIG_FB)
 static int ovt_tcm_pm_suspend(struct device *dev)
 {
+	struct ovt_tcm_hcd *tcm_hcd = dev_get_drvdata(dev);
+
 	ovt_info(INFO_LOG, "%s enter!\n", __func__);
+	tcm_hcd->pm_suspend = true;
+	reinit_completion(&tcm_hcd->pm_completion);
 	return 0;
 }
 
 static int ovt_tcm_pm_resume(struct device *dev)
 {
+	struct ovt_tcm_hcd *tcm_hcd = dev_get_drvdata(dev);
+
 	ovt_info(INFO_LOG, "%s enter!\n", __func__);
+	tcm_hcd->pm_suspend = false;
+	complete(&tcm_hcd->pm_completion);
 	return 0;
 }
-#endif
 
 static const struct dev_pm_ops ovt_tcm_dev_pm_ops = {
-#if !defined(CONFIG_DRM) && !defined(CONFIG_FB)
 	.suspend = ovt_tcm_pm_suspend,
 	.resume = ovt_tcm_pm_resume,
-#endif
 };
 #endif
 

@@ -59,12 +59,20 @@
 /*
  * Log define
  */
-#define GTP_ERROR(fmt, arg...)          pr_err("<GTP-ERR>[%s:%d] "fmt"\n", __func__, __LINE__, ##arg)
-#define GTP_INFO(fmt, arg...)          pr_info("<GTP-INFO>[%s:%d] "fmt"\n", __func__, __LINE__, ##arg)
+#define GTP_ERROR(fmt, arg...) \
+	do { \
+		pr_err("[ZTE_LDD_TP][TPD_GTP-ERR][%s:%d] "fmt"\n", __func__, __LINE__, ##arg); \
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_GTP-ERR][%s:%d] "fmt"\n", __func__, __LINE__, ##arg); \
+	} while (0)
+#define GTP_INFO(fmt, arg...)  \
+	do {						\
+ 		pr_info("[ZTE_LDD_TP][TPD_GTP-INFO][%s:%d] "fmt"\n", __func__, __LINE__, ##arg); \
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_GTP-INFO][%s:%d] "fmt"\n", __func__, __LINE__, ##arg); \
+	} while (0)
 #define GTP_DEBUG(fmt, arg...)				\
 	do {									\
-		if (CONFIG_ENABLE_DEBUG_LOG)						\
-			pr_err("<GTP-DBG>[%s:%d]"fmt"\n", __func__, __LINE__, ##arg);\
+		if (CONFIG_ENABLE_DEBUG_LOG || tpd_cdev->debug_log_enable)						\
+			pr_err("[ZTE_LDD_TP][TPD_GTP-DBG][%s:%d]"fmt"\n", __func__, __LINE__, ##arg);\
 	} while (0)
 
 #define GTP_DRIVER_NAME               "gcore"

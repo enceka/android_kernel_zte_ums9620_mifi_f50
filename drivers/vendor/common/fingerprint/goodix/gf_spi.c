@@ -12,8 +12,6 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-#define pr_fmt(fmt)		KBUILD_MODNAME ": " fmt
-
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/ioctl.h>
@@ -56,9 +54,8 @@
 #define VER_MAJOR   1
 #define VER_MINOR   2
 #define PATCH_LEVEL 11
-#define GOODIXFP_DRIVER_VERSION		"v2022-10-20"
 
-#define WAKELOCK_HOLD_TIME 500 /* in ms */
+#define WAKELOCK_HOLD_TIME 3000 /* in ms */
 
 #define GF_SPIDEV_NAME     "goodix,fingerprint"
 /*device name after register in charater*/
@@ -109,6 +106,8 @@ struct zlog_mod_info goodix_zlog_fp_dev = {
 	.fops = NULL,
 };
 #endif
+
+extern int zte_fp_pinctrl_select_spi(bool is_spi_mode);
 
 /*fp nav*/
 static void gf_report_uevent(struct gf_dev *gf_dev, char *str)
@@ -366,7 +365,7 @@ static irqreturn_t gf_irq(int irq, void *handle)
 	char msg = GF_NET_EVENT_IRQ;
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 14, 0))
 	/* __pm_wakeup_event(fp_wakelock, msecs_to_jiffies(WAKELOCK_HOLD_TIME)); */
-	__pm_wakeup_event(fp_wakelock, 1000);
+	__pm_wakeup_event(fp_wakelock, 3000);
 #else
 	wake_lock_timeout(&fp_wakelock, msecs_to_jiffies(WAKELOCK_HOLD_TIME));
 #endif
@@ -513,6 +512,8 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case GF_IOC_RESET:
 		gf_debug(INFO_LOG, "%s:GF_IOC_RESET\n", __func__);
 		gf_hw_reset(gf_dev, 3);
+		zte_fp_pinctrl_select_spi(true);
+		msleep(20);
 		break;
 
 	case GF_IOC_INPUT_KEY_EVENT:
@@ -573,6 +574,7 @@ static long gf_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	case GF_IOC_DISABLE_POWER:
 		gf_debug(INFO_LOG, "%s:GF_IOC_DISABLE_POWER\n", __func__);
+		zte_fp_pinctrl_select_spi(false);
 		if (gpio_is_valid(gf_dev->reset_gpio)) {
 			gpio_set_value(gf_dev->reset_gpio, 0);
 			gf_debug(DEBUG_LOG, "before GF_IOC_DISABLE_POWER reset gpio set low success!\n");
@@ -1140,7 +1142,7 @@ static int gf_probe(struct platform_device *spi)
 	wake_lock_init(&fp_wakelock, WAKE_LOCK_SUSPEND, "fp_wakelock");
 #endif
 
-	gf_debug(INFO_LOG, "%s:version : %s\n", __func__, GOODIXFP_DRIVER_VERSION);
+	gf_debug(INFO_LOG, "%s exit\n", __func__);
 
 	return status;
 
@@ -1233,7 +1235,7 @@ int gf_init(void)
 	 * that will key udev/mdev to add/remove /dev nodes.  Last, register
 	 * the driver which manages those device numbers.
 	 */
-	gf_debug(INFO_LOG, "%s enter!\n", __func__);
+	gf_debug(INFO_LOG, "%s enter! driver_time:2023-09-25\n", __func__);
 
 	BUILD_BUG_ON(N_SPI_MINORS > 256);
 	status = register_chrdev(SPIDEV_MAJOR, CHRD_DRIVER_NAME, &gf_fops);

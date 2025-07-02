@@ -2170,6 +2170,11 @@ static int sc27xx_fgu_get_temp(struct sc27xx_fgu_data *data, int *temp)
 	data->bat_temp = *temp;
 #ifdef ZTE_CHARGER_NO_BATTERY
 	*temp = 250;
+#else
+#if defined(ZTE_CHARGER_COMPATIBLE_NO_BATTERY) &&  defined(ZTE_FEATURE_PV_AR)
+	if (!data->bat_present)
+		*temp = 250;
+#endif
 #endif
 
 	return 0;
@@ -2591,6 +2596,11 @@ static int sc27xx_fgu_get_property(struct power_supply *psy,
 		val->intval = value * 1000;
 #ifdef ZTE_CHARGER_NO_BATTERY
 		val->intval = 3800000;
+#else
+#if defined(ZTE_CHARGER_COMPATIBLE_NO_BATTERY) &&  defined(ZTE_FEATURE_PV_AR)
+	if (!data->bat_present)
+		val->intval = 3800000;
+#endif
 #endif
 		break;
 
@@ -2893,18 +2903,6 @@ static int sc27xx_fgu_set_property(struct power_supply *psy,
 	return ret;
 }
 
-static void sc27xx_fgu_external_power_changed(struct power_supply *psy)
-{
-	struct sc27xx_fgu_data *data = power_supply_get_drvdata(psy);
-
-	if (!data) {
-		pr_err("%s:line%d: NULL pointer!!!\n", __func__, __LINE__);
-		return;
-	}
-
-	power_supply_changed(data->battery);
-}
-
 static int sc27xx_fgu_property_is_writeable(struct power_supply *psy,
 					    enum power_supply_property psp)
 {
@@ -2955,7 +2953,7 @@ static const struct power_supply_desc sc27xx_fgu_desc = {
 	.num_properties		= ARRAY_SIZE(sc27xx_fgu_props),
 	.get_property		= sc27xx_fgu_get_property,
 	.set_property		= sc27xx_fgu_set_property,
-	.external_power_changed	= sc27xx_fgu_external_power_changed,
+	.external_power_changed	= power_supply_changed,
 	.property_is_writeable	= sc27xx_fgu_property_is_writeable,
 	.no_thermal		= true,
 };

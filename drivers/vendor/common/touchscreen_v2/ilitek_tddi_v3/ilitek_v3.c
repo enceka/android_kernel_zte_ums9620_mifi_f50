@@ -400,9 +400,7 @@ static void ilitek_tddi_wq_esd_check(struct work_struct *work)
 	mutex_lock(&ilits->touch_mutex);
 	if (ilits->esd_recover() < 0) {
 		ILI_ERR("SPI ACK failed, doing spi recovery\n");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
 		ili_spi_recovery();
 	}
 	mutex_unlock(&ilits->touch_mutex);
@@ -665,9 +663,7 @@ int ili_fw_upgrade_handler(void *data)
 	if (ret != 0) {
 		ILI_INFO("FW upgrade fail\n");
 		ilits->fw_update_stat = FW_UPDATE_FAIL;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 	} else {
 		ILI_INFO("FW upgrade pass\n");
 #if CHARGER_NOTIFIER_CALLBACK
@@ -948,9 +944,7 @@ int ili_report_handler(void)
 
 	if (checksum != pack_checksum && pid != P5_X_I2CUART_PACKET_ID) {
 		ILI_ERR("Checksum Error (0x%X)! Pack = 0x%X, len = %d\n", checksum, pack_checksum, rlen);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		debug_en = DEBUG_ALL;
 		ili_dump_data(trdata, 8, rlen, 0, "finger report with wrong");
 		debug_en = tmp;

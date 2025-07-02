@@ -16,6 +16,10 @@
 #include "himax_ic_core.h"
 
 int himax_get_fw_by_lcdinfo(void);
+#ifdef HX_HOR_VER_SWITCH_MODE
+extern int HOR_VER_SWITCH_detect_flag;
+#endif
+extern struct firmware *himax_adb_upgrade_firmware;
 
 bool g_has_alg_overlay;
 #if defined(HX_ZERO_FLASH)
@@ -857,16 +861,47 @@ void himax_enable_headset_mode(bool enable)
 		hx_s_core_fp._register_read(hx_s_ic_setup._func_headset,
 			tmp_data,
 			DATA_LEN_4);
-		
+
 		if (g_ts_dbg != 0)
 			I("%s: tmp_data[0]=%d, headset detect=%d, retry_cnt=%d\n", __func__, tmp_data[0], enable ,retry_cnt);
-		 
+
 		retry_cnt++;
 	} while ((tmp_data[3] != back_data[3]
 		|| tmp_data[2] != back_data[2]
 		|| tmp_data[1] != back_data[1]
 		|| tmp_data[0] != back_data[0])
 		&& retry_cnt < HIMAX_REG_RETRY_TIMES);
+
+}
+
+#endif
+
+#if defined(HX_HOR_VER_SWITCH_MODE)
+int himax_horizontal_and_vertical_switching(int switch_flag)
+{
+	uint8_t tmp_data[DATA_LEN_4];
+	int ret = 0;
+
+	if (switch_flag == 0 || switch_flag == 2) {
+
+		I("%s: Vertical screen status 0xA55AA55A\n", __func__);
+		hx_parse_assign_cmd(0xA55AA55A, tmp_data, DATA_LEN_4);
+		ret = hx_s_core_fp._register_write(0x10007F3C, tmp_data, DATA_LEN_4);
+
+	} else if (switch_flag == 3) {
+
+		I("%s: Horizontal screen status 0xA33AA33A, receiver is on the right\n", __func__);
+		hx_parse_assign_cmd(0xA33AA33A, tmp_data, DATA_LEN_4);
+		ret = hx_s_core_fp._register_write(0x10007F3C, tmp_data, DATA_LEN_4);
+
+	}  else if (switch_flag == 1) {
+
+		I("%s: Horizontal screen status 0xA11AA11A, receiver is on the left\n", __func__);
+		hx_parse_assign_cmd(0xA11AA11A, tmp_data, DATA_LEN_4);
+		ret = hx_s_core_fp._register_write(0x10007F3C, tmp_data, DATA_LEN_4);
+
+	}
+	return ret;
 
 }
 #endif
@@ -1000,6 +1035,9 @@ void himax_mcu_read_FW_ver(void)
 	/*I("CFG_VER : %X\n",hx_s_ic_data->vendor_config_ver);*/
 	hx_s_ic_data->vendor_touch_cfg_ver = data[2];
 	I("TOUCH_VER : %X\n", hx_s_ic_data->vendor_touch_cfg_ver);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	tpd_cdev->ic_tpinfo.firmware_ver = hx_s_ic_data->vendor_touch_cfg_ver;
+#endif
 	hx_s_ic_data->vendor_display_cfg_ver = data[3];
 	I("DISPLAY_VER : %X\n", hx_s_ic_data->vendor_display_cfg_ver);
 	hx_s_core_fp._register_read(hx_s_ic_setup._addr_fw_vendor, data,
@@ -1881,6 +1919,9 @@ void himax_mcu_pin_reset(void)
 	usleep_range(RST_LOW_PERIOD_S, RST_LOW_PERIOD_E);
 	himax_rst_gpio_set(hx_s_ts->rst_gpio, 1);
 	usleep_range(RST_HIGH_PERIOD_S, RST_HIGH_PERIOD_E);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	tpd_cdev->tp_reset_timer = jiffies;
+#endif
 }
 #endif
 void himax_mcu_ic_reset(int level)
@@ -2410,9 +2451,11 @@ void himax_mcu_resend_cmd_func(bool suspended)
 #if defined(HX_USB_DETECT_GLOBAL)
 	himax_cable_detect_func(true);
 #endif
-
 #if defined(HX_HEADSET_MODE)
 	himax_headset_detect_func();
+#endif
+#if defined(HX_HOR_VER_SWITCH_MODE)
+	himax_hor_ver_switch_func(HOR_VER_SWITCH_detect_flag);
 #endif
 
 }
@@ -2999,6 +3042,7 @@ static int himax_zf_part_info(const struct firmware *fw, int type)
 	if (hx_s_core_fp._write_sram_0f_crc(info[0].sram_addr,
 	&fw->data[info[0].fw_addr], info[0].write_size) != 0) {
 		E("%s: HW CRC FAIL\n", __func__);
+		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
 		ret = 2;
 		goto BURN_SRAM_FAIL;
 	} else {
@@ -3024,6 +3068,7 @@ static int himax_zf_part_info(const struct firmware *fw, int type)
 		if (cfg_crc_hw != cfg_crc_sw) {
 			E("Cfg CRC FAIL,HWCRC=%X,SWCRC=%X,retry=%d\n",
 				cfg_crc_hw, cfg_crc_sw, retry);
+			tpd_zlog_record_notify(TP_CRC_ERROR_NO);
 		}
 	} while (cfg_crc_hw != cfg_crc_sw && retry++ < 3);
 
@@ -3059,10 +3104,11 @@ ALOC_CFG_BUF_FAIL:
 int himax_mcu_firmware_update_0f(const struct firmware *fw, int type)
 {
 	int ret = 0;
+	int tp_time = 0;
 	uint8_t tmp_data[DATA_LEN_4];
 
 	I("%s,Entering - total FW size=%d\n", __func__, (int)fw->size);
-
+	tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
 	hx_parse_assign_cmd(hx_s_ic_setup._data_system_reset,
 		tmp_data, DATA_LEN_4);
 	hx_s_core_fp._register_write(hx_s_ic_setup._addr_system_reset,
@@ -3071,7 +3117,8 @@ int himax_mcu_firmware_update_0f(const struct firmware *fw, int type)
 	hx_s_core_fp._sense_off(false);
 
 	ret = himax_zf_part_info(fw, type);
-
+    tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+	TPD_DMESG("tp_time fts fw upgrade time:%d.", tp_time);
 	I("%s, End\n", __func__);
 
 	return ret;
@@ -3091,38 +3138,60 @@ int hx_0f_op_file_dirly(char *file_name)
 	g_f_0f_updat = 1;
 	I("%s: Preparing to update %s!\n", __func__, file_name);
 
-	reqret = request_firmware(&fw, file_name, hx_s_ts->dev);
-	if (reqret < 0) {
+	if (himax_adb_upgrade_firmware) {
+		hx_s_core_fp._bin_desc_get((unsigned char *)himax_adb_upgrade_firmware->data, HX1K);
+		ret = hx_s_core_fp._firmware_update_0f(himax_adb_upgrade_firmware, type);
+	} else {
+		reqret = request_firmware(&fw, file_name, hx_s_ts->dev);
+		if (reqret < 0) {
 #if defined(HX_FIRMWARE_HEADER)
-		fw = &g_embedded_fw;
-		I("%s: Not find FW in userspace, use embedded FW(size:%zu)\n",
-			__func__, g_embedded_fw.size);
+			fw = &g_embedded_fw;
+			I("%s: Not find FW in userspace, use embedded FW(size:%zu)\n",
+				__func__, g_embedded_fw.size);
 #else
-		ret = reqret;
-		E("%s: request firmware fail, code[%d]!!\n", __func__, ret);
-		goto END;
+			ret = reqret;
+			E("%s: request firmware %s fail, code[%d]!!\n", __func__, file_name, ret);
+#ifdef HIMAX_DEFAULT_FIRMWARE
+			I("%s: try to request default fw %s\n", __func__, DEFAULT_UPDATE_FIRMWARE_NAME);
+			reqret = request_firmware(&fw, DEFAULT_UPDATE_FIRMWARE_NAME, hx_s_ts->dev);
+			if (reqret < 0) {
+				E("%s: request default fw fail, code[%d]!!\n", __func__, reqret);
+				tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
+				ret = reqret;
+				goto END;
+			} else {
+				I("%s: request default fw success\n", __func__);
+			}
 #endif
+#endif
+		}
+		I("%s: request_firmware success\n", __func__);
+
+		if (strcmp(file_name, MPAP_FWNAME) == 0)
+			type = 1;
+
+		CFG_TABLE_FLASH_ADDR = CFG_TABLE_FLASH_ADDR_T;
+		hx_s_core_fp._bin_desc_get((unsigned char *)fw->data, HX1K);
+		ret = hx_s_core_fp._firmware_update_0f(fw, type);
+
+		if (reqret >= 0)
+			release_firmware(fw);
 	}
 
-	if (strcmp(file_name, MPAP_FWNAME) == 0)
-		type = 1;
-
-	ret = hx_s_core_fp._firmware_update_0f(fw, type);
-
-	if (reqret >= 0)
-		release_firmware(fw);
-
-	if (ret < 0)
+	if (ret < 0) {
+		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
 		goto END;
+	}
 
-if (!g_has_alg_overlay) {
-	if (type == 1)
-		hx_s_core_fp._turn_on_mp_func(1);
-	else
-		hx_s_core_fp._turn_on_mp_func(0);
-	hx_s_core_fp._reload_disable(0);
-	hx_s_core_fp._power_on_init();
-}
+	if (!g_has_alg_overlay) {
+		if (type == 1)
+			hx_s_core_fp._turn_on_mp_func(1);
+		else
+			hx_s_core_fp._turn_on_mp_func(0);
+		hx_s_core_fp._reload_disable(0);
+		hx_s_core_fp._power_on_init();
+		hx_s_core_fp._read_FW_ver();
+	}
 
 END:
 	g_f_0f_updat = 0;

@@ -189,11 +189,13 @@ long gcore_app_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		fw_buf = kzalloc(FW_SIZE, GFP_KERNEL);
 		if (IS_ERR_OR_NULL(fw_buf)) {
 			GTP_ERROR("fw data mem allocate fail");
+			kfree(fw_buf);
 			return -ENOMEM;
 		}
 
 		if (copy_from_user(fw_buf, (char *)arg, FW_SIZE)) {
 			GTP_ERROR("copy fw_buf from user fail");
+			kfree(fw_buf);
 			return -EFAULT;
 		}
 		gdev->fw_ver_in_bin[0] = fw_buf[FW_VERSION_ADDR];
@@ -251,9 +253,7 @@ long gcore_app_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		mutex_unlock(&gdev->transfer_lock);
 
 		break;
-/*
-1、读寄存器：应用层可通过ioctl(fd, IOC_APP_READ_REG, &reg_info)方法获取底层寄存器信息，参数reg_info是struct reg_msg结构
-*/
+
 	case IOC_APP_READ_REG:
 		ret = copy_from_user(&msg_reg, (struct reg_msg __user *)arg, sizeof(msg_reg));
 		if (ret) {
@@ -285,9 +285,7 @@ long gcore_app_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 
 		break;
-/*
-2、写寄存器：应用层可通过ioctl(fd, IOC_APP_WRITE_REG, &reg_info)方法写入底层寄存器信息，参数reg_info是struct reg_msg结构
-*/
+
 	case IOC_APP_WRITE_REG:
 		ret = copy_from_user(&msg_reg, (struct reg_msg __user *)arg, sizeof(msg_reg));
 		if (ret) {
@@ -319,9 +317,6 @@ long gcore_app_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 /***********************************************************************************************************************/
 
-/*
-3、切换Mode： 应用层可通过ioctl(fd, IOC_APP_SWITCH_MODE, &mode_info)方法切换底层运行模式，参数mode_info是struct mode_inf结构
-*/
 	case IOC_APP_SWITCH_MODE :
 		GTP_DEBUG("App ioctl set mode");
 		ret = copy_from_user(&msg_mode, (struct mode_inf __user *)arg, sizeof(msg_mode));

@@ -25,11 +25,9 @@ int i2c_write_bytes(struct hal_io_packet *ppacket)
 			break;
 	}
 	client->addr = client->addr & I2C_MASK_FLAG & (~I2C_DMA_FLAG);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	if (retry >= HAL_MAX_TRY) {
 		tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
 	}
-#endif
 	return ret;
 }
 
@@ -55,11 +53,9 @@ int i2c_read_bytes(struct hal_io_packet *ppacket)
 	}
 	memcpy(ppacket->io_buffer, dma_buff_virtual_addr, ppacket->io_length);
 	client->addr = client->addr & I2C_MASK_FLAG & (~I2C_DMA_FLAG);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	if (retry >= HAL_MAX_TRY) {
 		tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
 	}
-#endif
 	return ret;
 }
 
@@ -112,11 +108,9 @@ int i2c_write_bytes(struct hal_io_packet *ppacket)
 			usleep_range(10000, 11000);
 		}
 	}
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		if (retry >= HAL_MAX_TRY) {
-			tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
-		}
-#endif
+	if (retry >= HAL_MAX_TRY) {
+		tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
+	}
 	return ret;
 }
 
@@ -144,11 +138,9 @@ int i2c_read_bytes(struct hal_io_packet *ppacket)
 			usleep_range(10000, 11000);
 		}
 	}
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		if (retry >= HAL_MAX_TRY) {
-			tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
-		}
-#endif
+	if (retry >= HAL_MAX_TRY) {
+		tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
+	}
 	return ret;
 }
 

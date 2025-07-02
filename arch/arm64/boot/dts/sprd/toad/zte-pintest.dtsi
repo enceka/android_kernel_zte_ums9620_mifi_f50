@@ -1,0 +1,195 @@
+/* ZTE BSP creat this dtsi file only for zte_antenna_ctrl */
+
+#include <dt-bindings/zte_pintest/pintest.h>
+
+&pin_controller {
+
+	zgpio_9: keyin2 {
+		pins = "QOGIRN6PRO_KEYIN2";
+		function = "func4";
+	};
+
+	zgpio_10: pwma {
+		pins = "QOGIRN6PRO_PWMA";
+		function = "func4";
+	};
+
+	zgpio_191: i2s3di {
+		pins = "QOGIRN6PRO_IIS3DI";
+		function = "func4";
+	};
+
+	zgpio_194: i2s3clk {
+		pins = "QOGIRN6PRO_IIS3CLK";
+		function = "func4";
+	};
+
+	zgpio_124: keyout1 {
+		pins = "QOGIRN6PRO_KEYOUT1";
+		function = "func4";
+	};
+
+	zgpio_129: scl6 {
+		pins = "QOGIRN6PRO_SCL6";
+		function = "func4";
+	};
+
+	zgpio_7: keyin0 {
+		pins = "QOGIRN6PRO_KEYIN0";
+		function = "func4";
+	};
+
+	zgpio_192: i2s3do {
+		pins = "QOGIRN6PRO_IIS3DO";
+		function = "func4";
+	};
+
+	zgpio_78: rfctl_9 {
+		pins = "QOGIRN6PRO_RFCTL_9";
+		function = "func4";
+	};
+
+	zgpio_193: i2slrck {
+		pins = "QOGIRN6PRO_IIS3LRCK";
+		function = "func4";
+	};
+
+	zgpio_91: rffe3_sck {
+		pins = "QOGIRN6PRO_RFFE3_SCK";
+		function = "func4";
+	};
+
+	zgpio_92: rffe3_sda {
+		pins = "QOGIRN6PRO_RFFE3_SDA";
+		function = "func4";
+	};
+
+	zgpio_61: spi3_di {
+		pins = "QOGIRN6PRO_SPI3_DI";
+		function = "func4";
+	};
+
+	zgpio_62: spi3_do {
+		pins = "QOGIRN6PRO_SPI3_DO";
+		function = "func4";
+	};
+
+	zgpio_158: u0txd {
+		pins = "QOGIRN6PRO_U0TXD";
+		function = "func4";
+	};
+
+	zgpio_159: u0rxd {
+		pins = "QOGIRN6PRO_U0RXD";
+		function = "func4";
+	};
+
+	zgpio_59: spi3_csn {
+		pins = "QOGIRN6PRO_SPI3_CSN";
+		function = "func4";
+	};
+
+	zgpio_60: spi3_clk {
+		pins = "QOGIRN6PRO_SPI3_CLK";
+		function = "func4";
+	};
+
+	zgpio_130: sda6 {
+		pins = "QOGIRN6PRO_SDA6";
+		function = "func4";
+	};
+
+};
+
+/ {
+	zte_pintest_ctrl {
+		compatible = "zte,zte_pintest_ctrl";
+		status = "okay";
+		pinctrl-names = "default";
+
+		pinctrl-10 = <&zgpio_9 &zgpio_10 &zgpio_194 &zgpio_191 &zgpio_129 &zgpio_124 &zgpio_192
+					&zgpio_7 &zgpio_193 &zgpio_78 &zgpio_91 &zgpio_92 &zgpio_62 &zgpio_61
+					&zgpio_130 &zgpio_159 &zgpio_158 &zgpio_59 &zgpio_60>;
+
+		group1 {
+			label = "group1";
+			output-gpio = <&ap_gpio 9 0>;
+			input-gpio = <&ap_gpio 10 0>;
+			pintest-policy = <OUTPUT_HIGH INPUT_HIGH>,
+						<OUTPUT_LOW INPUT_LOW>;
+		};
+
+		group2 {
+			label = "group2";
+			output-gpio = <&ap_gpio 191 0>;
+			input-gpio = <&ap_gpio 194 0>;
+			pintest-policy = <OUTPUT_HIGH INPUT_HIGH>,
+						<OUTPUT_LOW INPUT_LOW>;
+		};
+
+		group3 {
+			label = "group3";
+			output-gpio = <&ap_gpio 124 0>;
+			input-gpio = <&ap_gpio 129 0>;
+			pintest-policy = <OUTPUT_HIGH INPUT_HIGH>,
+						<OUTPUT_LOW INPUT_LOW>;
+		};
+
+		group4 {
+			label = "group4";
+			output-gpio = <&ap_gpio 7 0>;
+			input-gpio = <&ap_gpio 192 0>;
+			pintest-policy = <OUTPUT_HIGH INPUT_HIGH>,
+						<OUTPUT_LOW INPUT_LOW>;
+		};
+
+		group5 {
+			label = "group5";
+			output-gpio = <&ap_gpio 78 0>;
+			input-gpio = <&ap_gpio 193 0>;
+			pintest-policy = <OUTPUT_HIGH INPUT_HIGH>,
+						<OUTPUT_LOW INPUT_LOW>;
+		};
+
+		group6 {
+			label = "group6";
+			output-gpio = <&ap_gpio 91 0>;
+			input-gpio = <&ap_gpio 92 0>;
+			pintest-policy = <OUTPUT_HIGH INPUT_HIGH>,
+						<OUTPUT_LOW INPUT_LOW>;
+		};
+
+		group7 {
+			label = "group7";
+			output-gpio = <&ap_gpio 61 0>;
+			input-gpio = <&ap_gpio 62 0>;
+			pintest-policy = <OUTPUT_HIGH INPUT_HIGH>,
+						<OUTPUT_LOW INPUT_LOW>;
+		};
+
+		group8 {
+			label = "group8";
+			output-gpio = <&ap_gpio 158 0>;
+			input-gpio = <&ap_gpio  159 0>;
+			pintest-policy = <OUTPUT_HIGH INPUT_HIGH>,
+						<OUTPUT_LOW INPUT_LOW>;
+		};
+
+		group9 {
+			label = "group9";
+			output-gpio = <&ap_gpio 130 0>;
+			input-gpio = <&ap_gpio 159 0>;
+			pintest-policy = <OUTPUT_HIGH INPUT_HIGH>,
+						<OUTPUT_LOW INPUT_LOW>;
+		};
+
+		group10 {
+			label = "group10";
+			output-gpio = <&ap_gpio 59 0>;
+			input-gpio = <&ap_gpio 60 0>;
+			pintest-policy = <OUTPUT_HIGH INPUT_HIGH>,
+						<OUTPUT_LOW INPUT_LOW>;
+		};
+	};
+};
+

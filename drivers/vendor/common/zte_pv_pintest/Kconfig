@@ -1,0 +1,4 @@
+config ZTE_PV_PIN_TEST
+	tristate "ZTE PIN GPIO Test support"
+	help
+		This option enable support for ZTE PV VERSION Test and interface.

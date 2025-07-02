@@ -271,8 +271,11 @@ struct upgrade_func upgrade_func_ft5008 = {
     .fwveroff = 0x010E,
     .fwcfgoff = 0x1F80,
     .appoff = 0x0000,
-    .upgspec_version = UPGRADE_SPEC_V_1_1,
+    .upgspec_version = UPGRADE_SPEC_V_1_0,
     .pramboot_supported = false,
     .hid_supported = true,
     .upgrade = fts_ft5008_upgrade,
+#ifdef FTS_UPGRADE_CHECK_CHIP_ID
+    .chip_name = "ft3683g",
+#endif
 };

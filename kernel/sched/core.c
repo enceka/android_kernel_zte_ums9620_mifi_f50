@@ -1631,6 +1631,9 @@ static inline void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 
 void activate_task(struct rq *rq, struct task_struct *p, int flags)
 {
+	if (task_on_rq_migrating(p))
+		flags |= ENQUEUE_MIGRATED;
+
 	if (task_contributes_to_load(p))
 		rq->nr_uninterruptible--;
 
@@ -4268,8 +4271,7 @@ static noinline void __schedule_bug(struct task_struct *prev)
 		print_ip_sym(preempt_disable_ip);
 		pr_cont("\n");
 	}
-	if (panic_on_warn)
-		panic("scheduling while atomic\n");
+	check_panic_on_warn("scheduling while atomic");
 
 	dump_stack();
 	add_taint(TAINT_WARN, LOCKDEP_STILL_OK);
@@ -5996,14 +5998,14 @@ SYSCALL_DEFINE3(sched_getaffinity, pid_t, pid, unsigned int, len,
 	if (len & (sizeof(unsigned long)-1))
 		return -EINVAL;
 
-	if (!alloc_cpumask_var(&mask, GFP_KERNEL))
+	if (!zalloc_cpumask_var(&mask, GFP_KERNEL))
 		return -ENOMEM;
 
 	ret = sched_getaffinity(pid, mask);
 	if (ret == 0) {
 		unsigned int retlen = min(len, cpumask_size());
 
-		if (copy_to_user(user_mask_ptr, mask, retlen))
+		if (copy_to_user(user_mask_ptr, cpumask_bits(mask), retlen))
 			ret = -EFAULT;
 		else
 			ret = retlen;
@@ -6469,6 +6471,15 @@ void sched_show_task(struct task_struct *p)
 		return;
 
 	printk(KERN_INFO "%-15.15s %c", p->comm, task_state_to_char(p));
+
+	if (p->state & TASK_UNINTERRUPTIBLE) {
+		u64 now = sched_ktime_clock();
+		u64 last = p->last_sleep_ts;
+		ktime_t delta = ktime_sub(ns_to_ktime(now), ns_to_ktime(last));
+
+		pr_info("duration_ns:%llu last_sleep_ns:%llu now_ns:%llu\n",
+			ktime_to_ns(delta), last, now);
+	}
 
 	if (p->state == TASK_RUNNING)
 		printk(KERN_CONT "  running task    ");

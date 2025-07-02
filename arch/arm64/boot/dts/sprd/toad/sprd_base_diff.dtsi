@@ -1,0 +1,23 @@
+/*
+ * this file is ued to change sprd dtsi which can't be changed by overlay
+ * such as /delete-node/ /delete-property/ and alises
+ */
+#include "zte-pintest.dtsi"
+/{
+	leds {
+		compatible = "gpio-leds";
+		red {
+			gpios = <&ap_gpio 10 GPIO_ACTIVE_HIGH>;
+			label = "hl8_led";
+			default-state = "off";
+                };
+	};
+	hdbd_gps_gpio_ctl {
+		gpsmcu-reset-gpio = <&ap_gpio 77 0>;
+		gpsmcu-avdd-gpio = <&ap_gpio 81 0>;
+		gpsmcu-prtrg-gpio = <&ap_gpio 76 0>;
+	};
+};
+&reserved_memory {
+	/delete-node/ dptx_hdcp@fff10000;
+};

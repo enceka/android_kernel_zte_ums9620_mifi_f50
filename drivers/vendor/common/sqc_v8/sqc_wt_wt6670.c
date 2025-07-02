@@ -1340,7 +1340,7 @@ static int wt6670_status_remove(void)
 	return 0;
 }
 
-static int wt6670_get_charger_type(int *chg_type)
+static int wt6670_get_charger_type(unsigned int *chg_type)
 {
 	switch (gWt6670->chg_type) {
 	case WT6670_VAL_CHG_TYPE_FLOAT:
@@ -1384,7 +1384,7 @@ static int wt6670_get_charger_type(int *chg_type)
 	return 0;
 }
 
-static int wt6670_set_charger_type(int chg_type)
+static int wt6670_set_charger_type(unsigned int chg_type)
 {
 	unsigned char wt6670_type = 0;
 

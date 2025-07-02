@@ -9,14 +9,21 @@
 
 #include "cts_common_interface.h"
 
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+#define CMD_GET_KUNCKLE_DATA_RO      (0x4124)
+#endif
+
 char ini_file_name[MAX_FILE_NAME_LEN] = { 0 };
 char cts_vendor_name[MAX_NAME_LEN_20] = { 0 };
 char cts_fw_name[MAX_FILE_NAME_LEN] = { 0 };
+#ifdef CTS_DEFAULT_FIRMWARE
+char cts_default_firmware_name[MAX_FILE_NAME_LEN] = {0};
+#endif
 int cts_test_result = 0;
 
-/* extern void set_tp_suspend(struct chipone_ts_data *cts_data, bool enable); */
 extern int cts_suspend(struct chipone_ts_data *cts_data);
 extern int cts_resume(struct chipone_ts_data *cts_data);
+extern int wait_fw_to_normal_work(struct cts_device *cts_dev);
 
 struct tpvendor_t cts_vendor_info[] = {
 	{CTS_MODULE1_ID, CTS_MODULE1_LCD_NAME },
@@ -52,7 +59,10 @@ int get_cts_module_info_from_lcd(void)
 	strlcpy(cts_vendor_name, cts_vendor_info[i].vendor_name, sizeof(cts_vendor_name));
 	snprintf(cts_fw_name, sizeof(cts_fw_name), "chipone_firmware_%s.bin", cts_vendor_name);
 	snprintf(ini_file_name, sizeof(ini_file_name), "cts_test_sensor_%s.cfg", cts_vendor_name);
-
+#ifdef CTS_DEFAULT_FIRMWARE
+	snprintf(cts_default_firmware_name, sizeof(cts_default_firmware_name),
+			"%s_%s.bin", CTS_DEFAULT_FIRMWARE, cts_vendor_name);
+#endif
 	cts_info("cts_vendor_name:%s", cts_vendor_name);
 	cts_info("cts_fw_name:%s", cts_fw_name);
 	cts_info("ini_file_name:%s", ini_file_name);
@@ -65,7 +75,7 @@ static int cts_init_tpinfo(struct ztp_device *cdev)
 	int vendor_id;
 	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
 
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
 	if (cts_dev->rtdata.suspended) {
 		cts_err("%s:In suspended", __func__);
@@ -83,8 +93,6 @@ static int cts_init_tpinfo(struct ztp_device *cdev)
 #else
 	cdev->ic_tpinfo.i2c_addr = i2c->addr;
 #endif
-
-	cts_dbg("%s exit", __func__);
 	return retval;
 }
 
@@ -93,12 +101,11 @@ static int cts_get_headset_state(struct ztp_device *cdev)
 {
 	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
 	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
 	cdev->headset_state = cts_data->headset_mode;
 
 	cts_info("%s:headset_state=%d", __func__, cdev->headset_state);
-	cts_dbg("%s exit", __func__);
 	return cdev->headset_state;
 }
 
@@ -106,19 +113,20 @@ static int cts_set_headset_state(struct ztp_device *cdev, int enable)
 {
 	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
 	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
-	cts_dbg("%s enter", __func__);
 
+	cts_info("%s enter", __func__);
 	cts_data->headset_mode = enable;
 	cts_info("%s:headset_state=%d", __func__, cts_data->headset_mode);
-	if (!cts_dev->rtdata.suspended) {
+
+	if (!cts_dev->rtdata.suspended && tpd_cdev->fw_ready) {
+		cts_lock_device(cts_dev);
 		if (cts_data->headset_mode) {
 			cts_earphone_plugin(&cts_data->cts_dev);
 		} else {
 			cts_earphone_plugout(&cts_data->cts_dev);
 		}
+		cts_unlock_device(cts_dev);
 	}
-
-	cts_dbg("%s exit", __func__);
 	return cts_data->headset_mode;
 }
 #endif
@@ -126,10 +134,9 @@ static int cts_set_headset_state(struct ztp_device *cdev, int enable)
 static int cts_get_sensibility(struct ztp_device *cdev)
 {
 	int retval = 0;
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
 	cts_info("%s:sensibility_level=%d", __func__, cdev->sensibility_enable);
-	cts_dbg("%s exit", __func__);
 	return retval;
 }
 
@@ -137,13 +144,13 @@ static int cts_set_sensibility(struct ztp_device *cdev, u8 enable)
 {
 	int retval = 0;
 	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
-	if (cts_dev->rtdata.suspended) {
+	if (cts_dev->rtdata.suspended || !tpd_cdev->fw_ready) {
 		cts_err("%s:In suspended", __func__);
 		return -EIO;
 	}
-
+	cts_lock_device(cts_dev);
 	switch (enable) {
 		case NORMAL_SENSI:
 			cts_info("cts tp is normal sensibility");
@@ -158,44 +165,33 @@ static int cts_set_sensibility(struct ztp_device *cdev, u8 enable)
 			cts_err("Unsupport tp sensibility level");
 			break;
 	}
-
+	cts_unlock_device(cts_dev);
 	cts_info("%s:retval=%d, sensibility_level=%d", __func__, retval, enable);
-	cts_dbg("%s exit", __func__);
 	return retval;
 }
 
 static int cts_get_tp_suspend(struct ztp_device *cdev)
 {
 	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
 	cdev->tp_suspend = cts_is_device_suspended(cts_dev);
 
 	cts_info("%s:tp_suspend=%d", __func__, cdev->tp_suspend);
-	cts_dbg("%s exit", __func__);
 	return cdev->tp_suspend;
 }
 
 static int cts_set_tp_suspend(struct ztp_device *cdev, u8 suspend_node, int enable)
 {
-	int retval = 0;
-	/* struct cts_device *cts_dev = (struct cts_device *)cdev->private;
-	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
-	if (suspend_node == PROC_SUSPEND_NODE) {
-		set_tp_suspend(cts_data, enable);
+	if (enable) {
+		change_tp_state(LCD_OFF);
 	} else {
-		if (enable) {
-			cts_suspend(cts_data);
-		} else {
-			queue_work(cts_data->workqueue, &cts_data->ts_resume_work);
-		}
+		change_tp_state(LCD_ON);
 	}
-
 	cts_info("%s:tp_suspend=%d", __func__, enable);
-	cts_dbg("%s exit", __func__); */
-	return retval;
+	return 0;
 }
 
 static int cts_charger_state_notify(struct ztp_device *cdev)
@@ -206,7 +202,8 @@ static int cts_charger_state_notify(struct ztp_device *cdev)
 
 	cts_dev->rtdata.charger_exist = cdev->charger_mode;
 
-	if(!cts_dev->rtdata.suspended && (cts_dev->rtdata.charger_exist != charger_mode_old)) {
+	if(!cts_dev->rtdata.suspended && tpd_cdev->fw_ready && (cts_dev->rtdata.charger_exist != charger_mode_old)) {
+		cts_lock_device(cts_dev);
 		if(cts_dev->rtdata.charger_exist) {
 			cts_info("charger in");
 			cts_charger_plugin(cts_dev);
@@ -214,21 +211,30 @@ static int cts_charger_state_notify(struct ztp_device *cdev)
 			cts_info("charger out");
 			cts_charger_plugout(cts_dev);
 		}
+		cts_unlock_device(cts_dev);
 	}
 	return 0;
 }
 
-static int chipone_ts_resume(void * cts_dev)
+static int chipone_ts_resume(void *tp_data)
 {
+	struct cts_device *cts_dev = (struct cts_device *)tp_data;
 	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
 
 	cts_info("%s enter", __func__);
 
-	return cts_resume(cts_data);
+	cts_resume(cts_data);
+	cts_dev->rtdata.gesture_wakeup_enabled = tpd_cdev->ztp_ctl.is_wakeup_gesture;
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	if (tpd_cdev->roi_diffdata_switch)
+		cts_tcs_set_knuckle_mode(cts_dev, 1);
+#endif
+	return 0;
 }
 
-static int chipone_ts_suspend(void *cts_dev)
+static int chipone_ts_suspend(void *tp_data)
 {
+	struct cts_device *cts_dev = (struct cts_device *)tp_data;
 	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
 
 	cts_info("%s enter", __func__);
@@ -240,32 +246,30 @@ static int chipone_ts_suspend(void *cts_dev)
 static int cts_get_wakegesture(struct ztp_device *cdev)
 {
 	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
 	cdev->b_gesture_enable = cts_is_gesture_wakeup_enabled(cts_dev);
 
 	cts_info("%s:gesture_enable=%d", __func__, cdev->b_gesture_enable);
-	cts_dbg("%s exit", __func__);
 	return 0;
 }
 
 static int cts_enable_wakegesture(struct ztp_device *cdev, int enable)
 {
 	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
-	if (cts_dev->rtdata.suspended) {
-		cdev->tp_suspend_write_gesture = true;
-	}
-
-	if (enable) {
-		cts_enable_gesture_wakeup(cts_dev);
+	if (!cts_dev->rtdata.suspended) {
+		if (enable) {
+			cts_enable_gesture_wakeup(cts_dev);
+		} else {
+			cts_disable_gesture_wakeup(cts_dev);
+		}
 	} else {
-		cts_disable_gesture_wakeup(cts_dev);
+		tpd_zlog_record_notify(TP_SUSPEND_GESTURE_OPEN_NO);
 	}
-
+	cdev->ztp_ctl.is_wakeup_gesture = enable;
 	cts_info("%s:gesture_enable=%d", __func__, enable);
-	cts_dbg("%s exit", __func__);
 	return enable;
 }
 #endif
@@ -273,11 +277,10 @@ static int cts_enable_wakegesture(struct ztp_device *cdev, int enable)
 static bool cts_suspend_need_awake(struct ztp_device *cdev)
 {
 	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
 #ifdef CFG_CTS_GESTURE
-	if (!cdev->tp_suspend_write_gesture &&
-		(cts_dev->rtdata.updating || cts_dev->rtdata.gesture_wakeup_enabled)) {
+	if (cts_dev->rtdata.updating || cts_dev->rtdata.gesture_wakeup_enabled) {
 		cts_info("tp suspend need awake");
 		return true;
 	}
@@ -288,7 +291,6 @@ static bool cts_suspend_need_awake(struct ztp_device *cdev)
 	}
 #endif
 	else {
-		cdev->tp_suspend_write_gesture = false;
 		cts_info("tp suspend dont need awake");
 		return false;
 	}
@@ -299,15 +301,16 @@ static int cts_set_display_rotation(struct ztp_device *cdev, int mrotation)
 {
 	int ret = -1;
 	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
-	if (cts_dev->rtdata.suspended) {
+	if (cts_dev->rtdata.suspended || !tpd_cdev->fw_ready) {
 		cts_err("%s:In suspended", __func__);
 		return -EIO;
 	}
 
 	cdev->display_rotation = mrotation;
 	cts_info("%s:display_rotation=%d", __func__, cdev->display_rotation);
+	cts_lock_device(cts_dev);
 	switch (cdev->display_rotation) {
 	case mRotatin_0:
 		cts_info("mRotatin_0 00");
@@ -328,7 +331,7 @@ static int cts_set_display_rotation(struct ztp_device *cdev, int mrotation)
 	default:
 		break;
 	}
-
+	cts_unlock_device(cts_dev);
 	cts_info("%s:ret=%d", __func__, ret);
 	if (ret) {
 		cts_err("%s:Set display rotation failed!", __func__);
@@ -336,10 +339,29 @@ static int cts_set_display_rotation(struct ztp_device *cdev, int mrotation)
 		cts_info("%s:Set display rotation success!", __func__);
 	}
 
-	cts_dbg("%s exit", __func__);
 	return cdev->display_rotation;
 }
 #endif
+
+int cts_ex_mode_recovery(struct ztp_device *cdev)
+{
+	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
+	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
+
+	cts_info("%s enter", __func__);
+#ifdef CONFIG_CTS_CHARGER_DETECT
+	if (cts_is_charger_exist(cts_dev)) {
+		cts_charger_plugin(cts_dev);
+	}
+#endif
+
+#ifdef CFG_CTS_HEADSET_DETECT
+	if (cts_data->headset_mode) {
+		cts_earphone_plugin(cts_dev);
+	}
+#endif
+	return 0;
+}
 
 struct cts_firmware *cts_get_firmware(void)
 {
@@ -387,10 +409,13 @@ static int cts_fw_upgrade(struct ztp_device *cdev, char *fw_name, int fwname_len
 		goto err_release_firmware;
 	}
 	cts_lock_device(cts_dev);
+	tpd_cdev->fw_ready = false;
 	ret = cts_update_firmware(cts_dev, firmware, false);
+	tpd_cdev->fw_ready = true;
 	cts_unlock_device(cts_dev);
 	if (ret) {
 		cts_err("Update firmware failed %d",	ret);
+		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
 		goto err_release_firmware;
 	}
 
@@ -404,7 +429,7 @@ err_release_firmware:
 	return ret;
 }
 
-/* static int cts_data_request(struct ztp_device *cdev, s16 *frame_data_words, enum tp_test_type  test_type)
+static int cts_data_request(struct ztp_device *cdev, s16 *frame_data_words, enum tp_test_type  test_type)
 {
 	int  ret = 0;
 	unsigned int x = 0;
@@ -415,30 +440,27 @@ err_release_firmware:
 
 	row = cts_dev->fwdata.rows;
 	col = cts_dev->fwdata.cols;
-	ret = cts_enable_get_rawdata(cts_dev);
-	if (ret) {
-		cts_err("Enable read raw data failed %d", ret);
-		goto out;
-	}
 
-	ret = cts_send_command(cts_dev, CTS_CMD_QUIT_GESTURE_MONITOR);
+	ret = cts_tcs_set_mnt_enable(cts_dev, 0x00);
 	if (ret) {
 		cts_err("Send cmd QUIT_GESTURE_MONITOR failed %d", ret);
 		goto out;
 	}
 	msleep(50);
+	cts_lock_device(cts_dev);
 	switch (test_type) {
+
 	case RAWDATA_TEST:
-		ret = cts_get_rawdata(cts_dev, frame_data_words);
+        ret = cts_tcs_top_get_rawdata(cts_dev, (u8 *)frame_data_words, row * col * 2);
 		if (ret) {
 			cts_err("Get raw data failed %d", ret);
 			goto out;
 		}
 		break;
 	case DELTA_TEST:
-		ret = cts_get_diffdata(cts_dev, frame_data_words);
+		ret = cts_tcs_top_get_manual_diff(cts_dev, (u8 *)frame_data_words,  row * col * 2);
 		if (ret) {
-			cts_err("Get diff data failed %d", ret);
+			cts_err("Get manualdiff data failed %d", ret);
 			goto out;
 		}
 		break;
@@ -447,14 +469,8 @@ err_release_firmware:
 		ret = -1;
 		goto out;
 	}
-
-	ret = cts_disable_get_rawdata(cts_dev);
-	if (ret) {
-		cts_err("Disable read raw data failed %d", ret);
-		goto out;
-	}
 	for (y = 0; y < row; y++) {
-		pr_cont("CTP[%2d]", (y + 1));
+		pr_cont("CTS[%2d]", (y + 1));
 		for (x = 0; x < col; x++) {
 			pr_cont("%5d,", frame_data_words[y * col + x]);
 		}
@@ -462,6 +478,7 @@ err_release_firmware:
 	}
 
 out:
+	cts_unlock_device(cts_dev);
 	return ret;
 }
 
@@ -493,6 +510,7 @@ static int  cts_testing_delta_raw_report(struct ztp_device *cdev, unsigned int n
 	for (idx = 0; idx < num_of_reports; idx++) {
 		len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len,
 				"frame: %d, TX:%d  RX:%d\n", idx, row, col);
+
 		retval = cts_data_request(cdev, frame_data_words, RAWDATA_TEST);
 		if (retval < 0) {
 			cts_err("data_request failed!");
@@ -500,10 +518,10 @@ static int  cts_testing_delta_raw_report(struct ztp_device *cdev, unsigned int n
 		}
 		len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len,
 				"RawData:\n");
-		for (i = 0; i < row * row; i++) {
+		for (i = 0; i < row * col; i++) {
 			len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len,
 				"%5d,", frame_data_words[i]);
-			if ((i + 1) % row == 0)
+			if ((i + 1) % col == 0)
 				len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len, "\n");
 		}
 		retval = cts_data_request(cdev, frame_data_words, DELTA_TEST);
@@ -513,31 +531,29 @@ static int  cts_testing_delta_raw_report(struct ztp_device *cdev, unsigned int n
 		}
 		len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len,
 				"DiffData:\n");
-		for (i = 0; i < row * row; i++) {
+		for (i = 0; i < row * col; i++) {
 			len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len,
 				"%5d,", frame_data_words[i]);
-			if ((i + 1) % row == 0)
+			if ((i + 1) % col == 0)
 				len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len, "\n");
 		}
 	}
 DATA_REQUEST_FAILED:
-	len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len, "\n\n");
 	retval = cts_plat_reset_device(cts_dev->pdata);
 	if (retval) {
 		cts_err("get tp rawdata reset chip failed %d", retval);
 	}
-	msleep(20);
 	cts_info("get tp delta raw data end!");
 	kfree(frame_data_words);
 	frame_data_words = NULL;
 MEM_ALLOC_FAILED:
 	cts_plat_enable_irq(cts_dev->pdata);
 	return retval;
-} */
+}
 
 static int cts_get_noise(struct ztp_device *cdev)
 {
-/* 	int ret =0;
+	int ret =0;
 
 	if(tp_alloc_tp_firmware_data(10 * RT_DATA_LEN)) {
 		cts_err(" alloc tp firmware data fail");
@@ -546,10 +562,11 @@ static int cts_get_noise(struct ztp_device *cdev)
 	ret = cts_testing_delta_raw_report(cdev, 5);
 	if (ret) {
 		cts_err( "%s:get_noise failed\n",  __func__);
+		tpd_zlog_record_notify(TP_GET_NOISE_ERROR_NO);
 		return ret;
 	} else {
 		cts_info("%s:get_noise success\n",  __func__);
-	} */
+	}
 	return 0;
 }
 
@@ -610,32 +627,289 @@ static int cts_self_test(struct ztp_device *cdev)
 		cts_test_result = cts_test_result | TEST_GT_OPEN;
 	if (ret & (1 << SHORT_CIRCUITE_TEST_CODE))
 		cts_test_result = cts_test_result | TEST_GT_SHORT;
-
+	if (ret & (1 << NOISE_TEST_CODE))
+		cts_test_result = cts_test_result | TEST_BEYOND_MAX_LIMIT;
+	if (ret & (1 << COMPENSATE_CAP_TEST_CODE))
+		cts_test_result = cts_test_result | TEST_BEYOND_MAX_LIMIT;
 	cts_deinit_selftest(cts_dev);
+	if (cts_test_result) {
+		tpd_zlog_record_notify(TP_SELF_TEST_ERROR_NO);
+	}
 	return 0;
 }
 
 static int tpd_cts_shutdown(struct ztp_device *cdev)
 {
-	int ret;
 	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
 	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
+	int ret = 0;
 
 	cts_info("tpd cts shutdown");
-	ret = cts_stop_device(&cts_data->cts_dev);
-	if (ret) {
-		cts_warn("Stop device failed");
-	}
-#ifdef CFG_CTS_CHARGER_DETECT
-	cts_deinit_charger_notifier(cts_data);
+	if (!tpd_cdev->fw_ready) {
+#ifdef CONFIG_TOUCHSCREEN_POINT_REPORT_CHECK
+		cancel_delayed_work_sync(&tpd_cdev->point_report_check_work);
 #endif
-	cts_deinit_esd_protection(cts_data);
+#ifdef CONFIG_CTS_ESD_PROTECTION
+		cts_disable_esd_protection(cts_data);
+#endif
+		ret = cts_plat_disable_irq(cts_dev->pdata);
+		if (ret < 0) {
+			cts_err("Disable IRQ failed %d", ret);
+			return ret;
+		}
+	} else {
+		cts_suspend(cts_data);
+	}
 	return 0;
 }
 
+int cts_bbat_test_int_pin(struct cts_device *cts_dev)
+{
+	int ret;
+
+	ret = cts_stop_device(cts_dev);
+	if (ret) {
+		cts_err("Stop device failed %d", ret);
+		goto show_test_result;
+	}
+
+	cts_lock_device(cts_dev);
+
+	ret = cts_tcs_set_int_test(cts_dev, 1);
+	if (ret) {
+		cts_err("Enable Int Test failed");
+		goto unlock_device;
+	}
+
+	ret = cts_tcs_set_int_pin(cts_dev, 1);
+	if (ret) {
+		cts_err("Enable Int Test High failed");
+		goto exit_int_test;
+	}
+
+	mdelay(10);
+
+	if (cts_plat_get_int_pin(cts_dev->pdata) == 0) {
+		cts_err("INT pin state != HIGH");
+		ret = -EFAULT;
+		goto exit_int_test;
+	}
+
+	ret = cts_tcs_set_int_pin(cts_dev, 0);
+	if (ret) {
+		cts_err("Enable Int Test LOW failed");
+		goto exit_int_test;
+	}
+
+	mdelay(10);
+
+	if (cts_plat_get_int_pin(cts_dev->pdata) != 0) {
+		cts_err("INT pin state != LOW");
+		ret = -EFAULT;
+		goto exit_int_test;
+	}
+
+exit_int_test:
+	if (cts_tcs_set_int_test(cts_dev, 0)) {
+		cts_err("Disable Int Test failed");
+	}
+	mdelay(10);
+unlock_device:
+	cts_unlock_device(cts_dev);
+	cts_start_device(cts_dev);
+
+show_test_result:
+	if (ret) {
+		cts_info("Int-Pin test FAIL");
+	} else {
+		cts_info("Int-Pin test PASS");
+	}
+
+	return ret;
+}
+
+#ifdef CFG_CTS_HAS_RESET_PIN
+int cts_bbat_test_reset_pin(struct cts_device *cts_dev)
+{
+	int ret = 0;
+	int retval = 0;
+
+	 ret = cts_stop_device(cts_dev);
+	if (ret) {
+		cts_err("Stop device failed %d", ret);
+		 goto show_test_result;
+	}
+
+	cts_lock_device(cts_dev);
+
+	cts_plat_set_reset(cts_dev->pdata, 0);
+	msleep(50);
+	if (cts_plat_is_normal_mode(cts_dev->pdata)) {
+		ret = -EIO;
+		cts_err("Device is alive while reset is low");
+	}
+	cts_plat_set_reset(cts_dev->pdata, 1);
+	msleep(50);
+	retval = wait_fw_to_normal_work(cts_dev);
+	if (retval) {
+		cts_err("Wait fw to normal work failed %d",retval);
+	}
+	if (!cts_plat_is_normal_mode(cts_dev->pdata)) {
+		ret = -EIO;
+		cts_err("Device is offline while reset is high");
+	}
+	cts_unlock_device(cts_dev);
+	retval = cts_start_device(cts_dev);
+	if (retval) {
+		cts_err("Start device failed %d", ret);
+	}
+
+	if (!cts_dev->rtdata.program_mode) {
+		cts_set_normal_addr(cts_dev);
+	}
+
+show_test_result:
+	if (ret) {
+		cts_info("Reset-Pin test FAIL");
+	} else {
+		cts_info("Reset-Pin test PASS");
+	}
+
+	return ret;
+}
+#endif
+
+static int cts_bbat_test(struct ztp_device *cdev)
+{
+	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
+	int ret = 0;
+
+/*tp int test*/
+	cdev->bbat_test_enter = true;
+	cdev->bbat_int_test = false;
+	cdev->bbat_test_result = 0;
+	ret = cts_bbat_test_int_pin(cts_dev);
+	if (ret) {
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_INT_BAAT_TEST_FAIL;
+	}
+/* tp rest test*/
+#ifdef CFG_CTS_HAS_RESET_PIN
+	ret = cts_bbat_test_reset_pin(cts_dev);
+	if (ret) {
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_RST_BAAT_TEST_FAIL;
+	}
+#endif
+	cdev->bbat_test_enter = false;
+	return cdev->bbat_test_result;
+}
+
+
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+int cts_tcs_get_knuckle_data(struct cts_device *cts_dev, u8 *data)
+{
+	u8 source_buf[ROI_DIFFDATA_LENGTH - 2] = {0};
+	u8 temp_data = 0;
+    int ret = 0, index = 0;
+
+    ret = cts_tcs_read(cts_dev, CMD_GET_KUNCKLE_DATA_RO,
+  		  source_buf, sizeof(source_buf));
+	for(index = 0; index < 49; index++) {
+		temp_data = source_buf[index * 2];
+		source_buf[index * 2] = source_buf[index * 2 + 1];
+		source_buf[index * 2 + 1] = temp_data;
+	}
+	if (ret == 0) {
+		memcpy((data + 2), source_buf, ROI_DIFFDATA_LENGTH -2);
+	}
+
+    return ret;
+}
+
+int cts_read_roi_diffdata(void)
+{
+	int ret = 0;
+	struct ztp_device *cdev = tpd_cdev;
+	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
+
+	if (!cdev->roi_diffdata_switch || !cdev->touch_press) {
+		return -EIO;
+	}
+	if (cdev->collect_diffdata_enable) {
+		if (cdev->wait_collect_completion && (cdev->get_diffdata_count >= COLLECT_MAX_COUNT)) {
+			cts_info("collect diffdata complete\n");
+			cdev->wait_collect_completion = false;
+			//complete(&cdev->diffdata_collect_completion);
+			return 0;
+		}
+	}
+	if (cdev->get_diffdata_count == 0) {
+		memset(cdev->roi_diffdata, 0, ROI_DIFFDATA_LENGTH);
+		memset(cdev->collect_diffdata, 0, ROI_DIFFDATA_LENGTH * COLLECT_MAX_COUNT);
+	}
+	if (cdev->get_diffdata_count >= COLLECT_MAX_COUNT)
+		return 0;
+	ret = cts_tcs_get_knuckle_data(cts_dev, cdev->roi_diffdata);
+	if (ret < 0) {
+		cts_err("read diffdata failed.\n");
+		goto out;
+	}
+	memcpy(cdev->collect_diffdata + cdev->get_diffdata_count * ROI_DIFFDATA_LENGTH,
+		 cdev->roi_diffdata, ROI_DIFFDATA_LENGTH);
+	tpd_get_hex_diffdata(cdev);
+	cdev->get_diffdata_count++;
+	return 0;
+out:
+	memset(cdev->roi_diffdata, 0, ROI_DIFFDATA_LENGTH);
+	return ret;
+}
+
+static int cts_send_roi_cmd(struct ztp_device *cdev, enum ts_cmd cmd)
+{
+	int ret;
+	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
+
+	switch (cmd) {
+	case TS_CMD_READ:
+		ret = cts_tcs_get_knuckle_mode(cts_dev, &cdev->roi_diffdata_switch);
+		if (ret) {
+			cts_err("get roi_diffdata_switch fail,ret=%d\n", ret);
+		} else {
+			cts_info("roi_diffdata_switch:%d\n", cdev->roi_diffdata_switch);
+		}
+		break;
+
+	case TS_CMD_WRITE:
+		ret = cts_tcs_set_knuckle_mode(cts_dev, !!cdev->roi_diffdata_switch);
+		break;
+
+	default:
+		cts_err("unknown cmd\n");
+		ret = -EINVAL;
+		break;
+	}
+	return ret;
+}
+
+static unsigned char *cts_get_roi_diffdata(struct ztp_device *cdev)
+{
+
+	if (!cdev->roi_diffdata_switch) {
+		cts_err("Get ROI diffdata, switch = OFF\n");
+		return NULL;
+	}
+	if (cdev->collect_diffdata_enable) {
+		cts_info("Get collect_diffdata\n");
+		return (unsigned char *)cdev->collect_diffdata;
+	} else {
+		cts_info("Get ROI diffdata");
+		return (unsigned char *)cdev->roi_diffdata;
+	}
+}
+#endif
+
 void cts_tpd_register_fw_class(struct cts_device *cts_dev)
 {
-	cts_dbg("%s enter", __func__);
+	cts_info("%s enter", __func__);
 
 	tpd_cdev->private = (void *)cts_dev;
 	tpd_cdev->get_tpinfo = cts_init_tpinfo;
@@ -657,10 +931,6 @@ void cts_tpd_register_fw_class(struct cts_device *cts_dev)
 	tpd_cdev->tp_resume_func = chipone_ts_resume;
 	tpd_cdev->tp_suspend_func = chipone_ts_suspend;
 
-	/* ufp_tp_ops.tp_data = cts_dev;
-	ufp_tp_ops.tp_resume_func = chipone_ts_resume;
-	ufp_tp_ops.tp_suspend_func = chipone_ts_suspend; */
-
 #ifdef CFG_CTS_GESTURE
 	tpd_cdev->get_gesture = cts_get_wakegesture;
 	tpd_cdev->wake_gesture = cts_enable_wakegesture;
@@ -671,7 +941,7 @@ void cts_tpd_register_fw_class(struct cts_device *cts_dev)
 #ifdef CFG_CTS_ROTATION
 	tpd_cdev->set_display_rotation = cts_set_display_rotation;
 #endif
-
+	tpd_cdev->tpd_send_cmd = cts_ex_mode_recovery;
 	tpd_cdev->tp_fw_upgrade = cts_fw_upgrade;
 	tpd_cdev->get_noise = cts_get_noise;
 	tpd_cdev->get_tp_self_test_result = cts_get_self_test_result;
@@ -682,9 +952,19 @@ void cts_tpd_register_fw_class(struct cts_device *cts_dev)
 	cts_info("%s:rst_gpio=%d", __func__, rst_gpio);
 	tpd_cdev->tp_reset_gpio_output = cts_reset_gpio_output;
 #endif
-
+	tpd_cdev->input = cts_dev->pdata->ts_input_dev;
 	tpd_cdev->max_x = cts_dev->pdata->res_x;
-	tpd_cdev->max_y = cts_dev->pdata->res_y;
+	tpd_cdev->max_y = cts_dev->pdata->res_y;	
 	cts_info("%s:PANEL_MAX_X:%d, PANEL_MAX_Y:%d", __func__, tpd_cdev->max_x, tpd_cdev->max_y);
-	cts_dbg("%s exit", __func__);
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	tpd_cdev->get_roi_diffdata = cts_get_roi_diffdata;
+	tpd_cdev->tp_send_roi_cmd = cts_send_roi_cmd;
+#endif
+	tpd_cdev->tp_bbat_test = cts_bbat_test;
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	get_cts_module_info_from_lcd();
+	zlog_tp_dev.device_name = cts_vendor_name;
+	zlog_tp_dev.ic_name = "chipone_tp";
+	TPD_ZLOG("device_name:%s, ic_name: %s.", zlog_tp_dev.device_name, zlog_tp_dev.ic_name);
+#endif
 }

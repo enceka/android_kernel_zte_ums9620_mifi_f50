@@ -71,7 +71,7 @@ struct TEEC_UUID uuid_ta_fpc = { 0x7778c03f, 0xc30c, 0x4dd0,
 #define FPC_RESET_LOW_US 5000
 #define FPC_RESET_HIGH1_US 100
 #define FPC_RESET_HIGH2_US 5000
-#define FPC_TTW_HOLD_TIME 1000
+#define FPC_TTW_HOLD_TIME 3000
 
 static struct class *fpc_class;
 static struct device *fpc_device;
@@ -81,7 +81,6 @@ static int major;
 
 static struct fpc_data *g_fpc_data;
 
-#define FPC_DRIVER_VERSION	"v2022-10-25"
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 struct zlog_mod_info fpc_zlog_fp_dev = {
 	.module_no = ZLOG_MODULE_FP,
@@ -1004,7 +1003,7 @@ int fpc_sensor_init(void)
 {
 	int status = 0;
 
-	fpc_debug(INFO_LOG, "[%s][%d] enter, driver version:%s\n", __func__, __LINE__, FPC_DRIVER_VERSION);
+	fpc_debug(INFO_LOG, "[%s][%d] enter, driver_time:2023-09-25\n", __func__, __LINE__);
 
 	BUILD_BUG_ON(N_SPI_MINORS > 256);
 	major = register_chrdev(FPC_DEV_MAJOR, "fpc_dev", &fpc_fops);

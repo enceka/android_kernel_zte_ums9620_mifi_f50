@@ -1153,7 +1153,7 @@ static int ipt_status_remove(void)
 	return 0;
 }
 
-static int ipt_get_charger_type(int *chg_type)
+static int ipt_get_charger_type(unsigned int *chg_type)
 {
 	switch (gIptX350->chg_type) {
 	case IPT_X350_VAL_CHG_TYPE_OCP:
@@ -1202,7 +1202,7 @@ static int ipt_get_charger_type(int *chg_type)
 	return 0;
 }
 
-static int ipt_set_charger_type(int chg_type)
+static int ipt_set_charger_type(unsigned int chg_type)
 {
 	unsigned char ipt_type = 0;
 

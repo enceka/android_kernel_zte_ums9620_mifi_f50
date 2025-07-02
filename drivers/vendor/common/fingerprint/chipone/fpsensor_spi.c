@@ -33,8 +33,6 @@
 #endif
 /*#include <linux/cdc_com.h>*/
 
-
-#define FPSENSOR_DRIVER_VERSION           "v2023-05-29"
 #define FP_NOTIFY                         1
 #define FPSENSOR_INPUT                    0
 #define REMOVE_FPSENSOR_DEV               1
@@ -87,6 +85,8 @@ struct zlog_mod_info chipone_zlog_fp_dev = {
 	.fops = NULL,
 };
 #endif
+
+extern int zte_fp_pinctrl_select_spi(bool is_spi_mode);
 
 /* -------------------------------------------------------------------- */
 /* fingerprint chip hardware configuration                                  */
@@ -534,9 +534,9 @@ static irqreturn_t fpsensor_irq(int irq, void *handle)
     smp_rmb();
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 14, 0))
     /* __pm_wakeup_event(fpsensor_dev->ttw_wl, msecs_to_jiffies(1000));*/
-    __pm_wakeup_event(fpsensor_dev->ttw_wl, 1000);
+    __pm_wakeup_event(fpsensor_dev->ttw_wl, 3000);
 #else
-    wake_lock_timeout(&fpsensor_dev->ttw_wl, msecs_to_jiffies(1000));
+    wake_lock_timeout(&fpsensor_dev->ttw_wl, msecs_to_jiffies(3000));
 #endif
 
     setRcvIRQ(1);
@@ -720,9 +720,11 @@ static long fpsensor_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
     case FPSENSOR_IOC_ENABLE_POWER:
         fp_debug(INFO_LOG, "%s:FPSENSOR_IOC_ENABLE_POWER\n", __func__);
         fpsensor_hw_power_enable(fpsensor_dev);
+        zte_fp_pinctrl_select_spi(true);
         break;
     case FPSENSOR_IOC_DISABLE_POWER:
         fp_debug(INFO_LOG, "%s:FPSENSOR_IOC_DISABLE_POWER\n", __func__);
+        zte_fp_pinctrl_select_spi(false);
         fpsensor_hw_power_disable(fpsensor_dev);
         break;
     case FPSENSOR_IOC_INIT_INPUT_DEV:
@@ -1379,7 +1381,7 @@ static int fpsensor_probe(struct spi_device *spi)
 #endif
 #endif
 
-    fp_debug(INFO_LOG, "%s:finished, driver version: %s\n", __func__, FPSENSOR_DRIVER_VERSION);
+    fp_debug(INFO_LOG, "%s:finished\n", __func__);
     goto out;
 
 release_drv_data:
@@ -1481,6 +1483,7 @@ static struct spi_driver fpsensor_driver = {
 int fpsensor_init(void)
 {
     int status;
+    fp_debug(INFO_LOG, "%s enter! driver_time:2023-09-25\n", __func__);
 #if defined(USE_PLATFORM_BUS)
     status = platform_driver_register(&fpsensor_driver);
     fp_debug(INFO_LOG, "%s:platform_driver_register", __func__);

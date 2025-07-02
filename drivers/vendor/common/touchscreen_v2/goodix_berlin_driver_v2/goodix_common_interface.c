@@ -762,6 +762,7 @@ void goodix_tpd_register_fw_class(struct goodix_ts_core *core_data)
 	}
 	tpd_cdev->max_x = ts_bdata->panel_max_x;
 	tpd_cdev->max_y = ts_bdata->panel_max_y;
+	tpd_cdev->input = core_data->input_dev;
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	zlog_tp_dev.device_name = gtp_vendor_name;
 	zlog_tp_dev.ic_name = "goodix_tp";

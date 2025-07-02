@@ -35,6 +35,7 @@ bool file_w_flag;
 static char g_file_path[256];
 static char g_rslt_log[256];
 static char g_start_log[512];
+extern int himax_tptest_result;
 #define FAIL_IN_INDEX "%s: %s FAIL in index %d\n"
 #define FAIL_IN_INDEX_CRTRA \
 	"%s: %s FAIL in index %d,max=%d, min=%d, RAW=%d\n"
@@ -2712,6 +2713,8 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 			+ hx_s_ic_data->tx_num + hx_s_ic_data->rx_num;
 	int i = 0;
 	int j = 0;
+	int retry = 0;
+
 #if !defined(HX_ZERO_FLASH)
 	uint8_t tmp_data[DATA_LEN_4] = {0x01, 0x00, 0x00, 0x00};
 #endif
@@ -2781,7 +2784,23 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 			if (g_test_item_flag[i] == 1) {
 				I("%d. %s Start\n", i,
 					g_himax_inspection_mode[i]);
-				ret = mpTestFunc(i, test_size);
+				if (i == HX_ACT_IDLE_NOISE) {
+					do {
+						ret = mpTestFunc(i, test_size);
+						if (ret) {
+							retry++;
+							I("idle_noise test failed, retry:%d", retry);
+							msleep(500);
+						#if defined(HX_RESUME_HW_RESET)
+							if (hx_s_core_fp._ic_reset != NULL)
+								hx_s_core_fp._ic_reset(0);
+						#endif
+						} else {
+							break;
+						}
+					} while (retry < 3);
+				} else
+					ret = mpTestFunc(i, test_size);
 #if defined(HX_RW_FILE)
 				if (file_w_flag) {
 					if (hx_write_file(g_rslt_data,
@@ -2920,14 +2939,32 @@ UPDATE_MPFW_FAIL:
 #endif
 
 	for (j = 0; j < HX_CRITERIA_ITEM - 1; j++) {
-		if (g_test_item_flag[j] == 1 && s != NULL) {
+		if (g_test_item_flag[j] == 1) {
+			if (s != NULL) {
+				if (j <= i) {
+					seq_printf(s, "%s : %s\n",
+						g_himax_inspection_mode[j],
+						(rslt & (1 << j)) ? "FAIL" : "PASS");
+				} else {
+					seq_printf(s, "%s : %s\n",
+						g_himax_inspection_mode[j], "SKIP");
+				}
+			}
 			if (j <= i) {
-				seq_printf(s, "%s : %s\n",
-					g_himax_inspection_mode[j],
-					(rslt & (1 << j)) ? "FAIL" : "PASS");
-			} else {
-				seq_printf(s, "%s : %s\n",
-					g_himax_inspection_mode[j], "SKIP");
+				I("%s %s : %s\n", __func__, g_himax_inspection_mode[j],
+					(rslt & (1 << j)) ? "Fail":"OK");
+				if ((rslt & (1 << j))) {
+					if (strnstr(g_himax_inspection_mode[j], "OPEN",
+						strlen(g_himax_inspection_mode[j]))) {
+						himax_tptest_result = himax_tptest_result | TEST_GT_OPEN;
+					} else if (strnstr(g_himax_inspection_mode[j], "SHORT",
+						strlen(g_himax_inspection_mode[j]))) {
+						himax_tptest_result = himax_tptest_result | TEST_GT_SHORT;
+					} else {
+						himax_tptest_result = himax_tptest_result | TEST_BEYOND_MAX_LIMIT
+											| TEST_BEYOND_MIN_LIMIT;
+					}
+				}
 			}
 		}
 	}

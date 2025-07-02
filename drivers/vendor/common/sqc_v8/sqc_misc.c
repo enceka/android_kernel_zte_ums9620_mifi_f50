@@ -51,6 +51,18 @@
 #define SQC_ZTE_THERMAL_VOTER		    "ZTE_THERMAL_VOTER"
 #define SQC_MTK_FLASH_VOTER		    	"SQC_MTK_FLASH_VOTER"
 
+enum {
+	ZTE_VOTER_LIGHT_CHG = 0,
+	ZTE_VOTER_NIGHT_CHG,
+	ZTE_VOTER_MAX,
+};
+
+static const char * const ZTE_VOTER_NAMES[] = {
+	[ZTE_VOTER_LIGHT_CHG]		= "ZTE_VOTER_LIGHT_CHG",
+	[ZTE_VOTER_NIGHT_CHG]		= "ZTE_VOTER_NIGHT_CHG",
+	[ZTE_VOTER_MAX]		= "ZTE_VOTER_MAX",
+};
+
 enum charger_type {
 	CHARGER_UNKNOWN = 0,
 	STANDARD_HOST,		/* USB : 450mA */
@@ -297,7 +309,8 @@ int sqc_get_property(enum power_supply_property psp,
 	int retval = 0;
 
 	if (!atomic_read(&misc_hal_data.init_finished)) {
-		val->intval = 0;
+		if (val)
+			val->intval = 0;
 		pr_err("sqc misc Uninitialized!!!\n");
 		return 0;
 	}
@@ -311,6 +324,9 @@ int sqc_get_property(enum power_supply_property psp,
 		case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 			retval = get_client_vote(misc_hal_data.usb_icl_votable, SQC_THERMAL_SETTING_VOTER);
 			retval = (retval < 0) ? -1 : retval;
+			break;
+		case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX:
+			retval = (misc_hal_data.thermal_ibat_limit == 0) ? 0 : 1;
 			break;
 		case POWER_SUPPLY_PROP_TEMP:
 			retval = misc_hal_data.tbat_debug;
@@ -335,7 +351,8 @@ int zte_sqc_get_property(enum zte_power_supply_property psp,
 	int retval = 0;
 
 	if (!atomic_read(&misc_hal_data.init_finished)) {
-		val->intval = 0;
+		if (val)
+			val->intval = 0;
 		pr_err("sqc misc Uninitialized!!!\n");
 		return 0;
 	}
@@ -1021,6 +1038,9 @@ static int interface_psy_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_TEMP:
 		pval->intval = pdata->tbat_debug;
 		break;
+	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
+		pval->intval = 0;
+		break;
 	default:
 		pr_info("interface unsupported property %d\n", psp);
 		rc = -EINVAL;
@@ -1035,7 +1055,7 @@ static int interface_psy_set_property(struct power_supply *psy,
 				const union power_supply_propval *pval)
 {
 	struct misc_dev_data *pdata = power_supply_get_drvdata(psy);
-	int rc = 0;
+	int rc = 0, voter_index = 0, voter_enable = 0;
 
 	if (!pdata || !atomic_read(&pdata->init_finished)) {
 		pr_err("interface Uninitialized!!!\n");
@@ -1076,6 +1096,17 @@ static int interface_psy_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_TEMP:
 		pdata->tbat_debug = pval->intval;
 		break;
+	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
+		voter_index = pval->intval / 2;
+		voter_enable = pval->intval % 2;
+		if ((voter_index < 0) || (voter_index >= ZTE_VOTER_MAX)) {
+			pr_err("voter_index outof range(%d)!!!\n", voter_index);
+			rc = -EINVAL;
+		} else {
+			pr_info("voter %s, %s to 0\n", ZTE_VOTER_NAMES[voter_index], voter_enable ? "enable" : "disable");
+			vote(pdata->fcc_votable, ZTE_VOTER_NAMES[voter_index], voter_enable, 0);
+		}
+		break;
 	default:
 		pr_info("interface unsupported property %d\n", psp);
 		rc = -EINVAL;
@@ -1096,6 +1127,7 @@ static int interface_property_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 	case POWER_SUPPLY_PROP_TEMP:
+	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT:
 		return 1;
 	default:
 		break;
@@ -1281,7 +1313,7 @@ static enum power_supply_property interface_psy_props[] = {
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
 	POWER_SUPPLY_PROP_TEMP,
-
+	POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT,
 };
 
 static const struct power_supply_desc interface_psy_desc = {

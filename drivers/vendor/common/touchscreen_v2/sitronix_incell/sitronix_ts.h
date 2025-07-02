@@ -123,12 +123,10 @@
 /* #define ST_UPGRADE_USE_REQUESTFW_BUF */
 #define ST_REQUESTFW_DF_PATH	sitronix_firmware_name
 extern char sitronix_firmware_name[];
-
-#ifdef ST_SKIP_HDL_IN_PROBE
-#define ST_DEFAULT_RES_X		720
-#define ST_DEFAULT_RES_Y		1600
-#define ST_DEFAULT_MAX_TOUCH	10
-#endif //ST_SKIP_HDL_IN_PROBE	
+#ifdef SITRONIX_DEFAULT_FIRMWARE
+#define DEFAULT_UPDATE_FIRMWARE_NAME  sitronix_default_firmware_name
+extern char sitronix_default_firmware_name[];
+#endif
 
 #ifdef SITRONIX_PROC_DIR_CREATE
 #define SITRONIX_PROC_DIR_NAME			"sitronix"
@@ -158,13 +156,17 @@ struct sitronix_ts_spi_data {
 #include <linux/input/mt.h>
 #endif /* SITRONIX_TS_MT_SLOT */
 
-
-
 #define sterr(format, ...)	\
-	printk("[STP ERR] " format, ## __VA_ARGS__)
+	do { \
+		printk("[ZTE_LDD_TP][TPD_STP ERR] " format, ## __VA_ARGS__);\
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_STP ERR] " format, ## __VA_ARGS__);\
+	} while (0)
 
 #define stmsg(format, ...)	\
-	printk("[STP MSG] " format, ## __VA_ARGS__)
+	do { \
+		printk("[ZTE_LDD_TP][TPD_STP MSG] " format, ## __VA_ARGS__);\
+		tpd_save_last_log("[ZTE_LDD_TP][STP MSG] " format, ## __VA_ARGS__);\
+	} while (0)
 
 #define stdbg(format, ...)	\
 	/* printk("[ST DBG] " format, ## __VA_ARGS__) */
@@ -324,6 +326,7 @@ struct sitronix_ts_device_info {
 	uint16_t	y_res;
 	uint8_t		x_chs;
 	uint8_t		y_chs;
+	uint8_t		n_chs;
 	uint8_t		misc_info;
 	uint8_t     chip_ver;
 };
@@ -417,7 +420,7 @@ struct sitronix_ts_data {
 	int self_test_uniformity_min;
 	int self_test_uniformity_max;
 	int self_test_std_max;
-	int self_test_std_square100_max;	
+	int self_test_std_square100_max;
 
 	/* palm suspend */
 	uint8_t	palm_suspend_frames;
@@ -565,7 +568,8 @@ int sitronix_get_ic_sfrver(void);
 int sitronix_get_ic_position(unsigned char *buf);
 int sitronix_write_driver_cmd(unsigned char cmd, unsigned char *buf, int len);
 int sitronix_read_driver_cmd(unsigned char dc, unsigned char *buf, int len);
-
+int sitronix_ts_enable_raw(struct sitronix_ts_data *ts_data, int type);
+int sitronix_ts_get_rawdata(struct sitronix_ts_data *ts_data, int *rbuf);
 
 /*sitronix_ts_upgrade.c*/
 int st_check_cfg(const char *data, int *cfgSize);

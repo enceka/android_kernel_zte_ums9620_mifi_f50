@@ -20,6 +20,7 @@ int cts_test_result = 0;
 extern int cts_suspend_device(struct cts_device *cts_dev);
 extern int cts_driver_suspend(struct chipone_ts_data *cts_data);
 extern int cts_driver_resume(struct chipone_ts_data *cts_data);
+extern int wait_fw_to_normal_work(struct cts_device *cts_dev);
 
 struct tpvendor_t cts_vendor_info[] = {
 	{CTS_MODULE1_ID, CTS_MODULE1_LCD_NAME },
@@ -253,9 +254,7 @@ static int cts_enable_wakegesture(struct ztp_device *cdev, int enable)
 
 	if (cts_dev->rtdata.suspended) {
 		cdev->tp_suspend_write_gesture = true;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SUSPEND_GESTURE_OPEN_NO);
-#endif
 	}
 
 	if (enable) {
@@ -668,6 +667,147 @@ static int tpd_cts_shutdown(struct ztp_device *cdev)
 	return 0;
 }
 
+int cts_bbat_test_int_pin(struct cts_device *cts_dev)
+{
+	int ret = 0;
+
+	ret = cts_stop_device(cts_dev);
+	if (ret) {
+		cts_err("Stop device failed %d", ret);
+		goto show_test_result;
+	}
+
+	cts_lock_device(cts_dev);
+
+	ret = cts_send_command(cts_dev, CTS_CMD_WRTITE_INT_HIGH);
+	if (ret) {
+		cts_err("Send command WRTITE_INT_HIGH failed %d", ret);
+		goto unlock_device;
+	}
+	mdelay(10);
+	if (cts_plat_get_int_pin(cts_dev->pdata) == 0) {
+		cts_err("INT pin state != HIGH");
+		ret = -EFAULT;
+		goto exit_int_test;
+	}
+
+	ret = cts_send_command(cts_dev, CTS_CMD_WRTITE_INT_LOW);
+	if (ret) {
+		cts_err("Send command WRTITE_INT_LOW failed %d", ret);
+		goto exit_int_test;
+	}
+	mdelay(10);
+	if (cts_plat_get_int_pin(cts_dev->pdata) != 0) {
+		cts_err("INT pin state != LOW");
+		ret = -EFAULT;
+		goto exit_int_test;
+	}
+
+exit_int_test:
+	if (cts_send_command(cts_dev, CTS_CMD_RELASE_INT_TEST)) {
+		cts_err("Send command RELASE_INT_TEST failed");
+	}
+	mdelay(10);
+
+unlock_device:
+	cts_unlock_device(cts_dev);
+	cts_start_device(cts_dev);
+
+show_test_result:
+	if (ret) {
+		cts_info("Int-Pin test FAIL");
+	} else {
+		cts_info("Int-Pin test PASS");
+	}
+
+	return ret;
+}
+
+#ifdef CFG_CTS_HAS_RESET_PIN
+int cts_bbat_test_reset_pin(struct cts_device *cts_dev)
+{
+	int ret = 0;
+	int retval = 0;
+
+	 ret = cts_stop_device(cts_dev);
+	if (ret) {
+		cts_err("Stop device failed %d", ret);
+		 goto show_test_result;
+	}
+
+	cts_lock_device(cts_dev);
+
+	cts_plat_set_reset(cts_dev->pdata, 0);
+	msleep(50);
+#ifdef CONFIG_CTS_I2C_HOST
+	/* Check whether device is in normal mode */
+	if (cts_plat_is_i2c_online(cts_dev->pdata, CTS_DEV_NORMAL_MODE_I2CADDR)) {
+#else
+	if (cts_plat_is_normal_mode(cts_dev->pdata)) {
+#endif /* CONFIG_CTS_I2C_HOST */
+		ret = -EIO;
+		cts_err("Device is alive while reset is low");
+	}
+	cts_plat_set_reset(cts_dev->pdata, 1);
+	msleep(50);
+	retval = wait_fw_to_normal_work(cts_dev);
+	if (retval) {
+		cts_err("Wait fw to normal work failed %d",retval);
+	}
+#ifdef CONFIG_CTS_I2C_HOST
+	/* Check whether device is in normal mode */
+    if (!cts_plat_is_i2c_online(cts_dev->pdata, CTS_DEV_NORMAL_MODE_I2CADDR)) {
+#else
+	if (!cts_plat_is_normal_mode(cts_dev->pdata)) {
+#endif /* CONFIG_CTS_I2C_HOST */
+		ret = -EIO;
+		cts_err("Device is offline while reset is high");
+	}
+	cts_unlock_device(cts_dev);
+	retval = cts_start_device(cts_dev);
+	if (retval) {
+		cts_err("Start device failed %d", ret);
+	}
+
+	if (!cts_dev->rtdata.program_mode) {
+		cts_set_normal_addr(cts_dev);
+	}
+
+show_test_result:
+	if (ret) {
+		cts_info("Reset-Pin test FAIL");
+	} else {
+		cts_info("Reset-Pin test PASS");
+	}
+
+	return ret;
+}
+#endif
+
+static int cts_bbat_test(struct ztp_device *cdev)
+{
+	struct cts_device *cts_dev = (struct cts_device *)cdev->private;
+	int ret = 0;
+
+/*tp int test*/
+	cdev->bbat_test_enter = true;
+	cdev->bbat_int_test = false;
+	cdev->bbat_test_result = 0;
+	ret = cts_bbat_test_int_pin(cts_dev);
+	if (ret) {
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_INT_BAAT_TEST_FAIL;
+	}
+/* tp rest test*/
+#ifdef CFG_CTS_HAS_RESET_PIN
+	ret = cts_bbat_test_reset_pin(cts_dev);
+	if (ret) {
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_RST_BAAT_TEST_FAIL;
+	}
+#endif
+	cdev->bbat_test_enter = false;
+	return cdev->bbat_test_result;
+}
+
 void cts_tpd_register_fw_class(struct cts_device *cts_dev)
 {
 	cts_dbg("%s enter", __func__);
@@ -713,7 +853,9 @@ void cts_tpd_register_fw_class(struct cts_device *cts_dev)
 	tpd_cdev->max_x = cts_dev->pdata->res_x;
 	tpd_cdev->max_y = cts_dev->pdata->res_y;
 	cts_dev->rtdata.force_update = false;
+	tpd_cdev->input = cts_dev->pdata->ts_input_dev;
 	cts_info("%s:PANEL_MAX_X:%d, PANEL_MAX_Y:%d", __func__, tpd_cdev->max_x, tpd_cdev->max_y);
+	tpd_cdev->tp_bbat_test = cts_bbat_test;
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	get_cts_module_info_from_lcd();
 	zlog_tp_dev.device_name = cts_vendor_name;

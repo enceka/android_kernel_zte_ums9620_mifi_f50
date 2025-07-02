@@ -17,10 +17,37 @@
 #include <linux/etherdevice.h>
 #include <linux/ethtool.h>
 #include <linux/if_vlan.h>
+#include <linux/of.h>
+#include <linux/string_helpers.h>
+#include <linux/usb/composite.h>
 
 #include "u_ether.h"
 
+static char usb_ncm_mac[32];
 
+static int sprd_get_usb_ncm_mac(void)
+{
+	struct device_node *cmdline_node;
+	const char *cmdline, *mode;
+	int ret;
+
+	pr_info("%s enter.\n",__func__);
+	cmdline_node = of_find_node_by_path("/chosen");
+	ret = of_property_read_string(cmdline_node, "bootargs", &cmdline);
+	if (ret) {
+		pr_err("Can't not parse bootargs\n");
+		return 0;
+	}
+	mode =  strstr(cmdline, "androidboot.wifimac=");
+	if (!mode) {
+		pr_err("mode value= 0\n");
+		return 0;
+	}
+	if (!sscanf(mode, "androidboot.wifimac=%s", usb_ncm_mac)) {
+		return 0;
+	}
+	return strlen(usb_ncm_mac);
+}
 /*
  * This component encapsulates the Ethernet link glue needed to provide
  * one (!) network link through the USB gadget stack, normally "usb0".
@@ -99,41 +126,6 @@ static inline int qlen(struct usb_gadget *gadget, unsigned qmult)
 	else
 		return DEFAULT_QLEN;
 }
-
-/*-------------------------------------------------------------------------*/
-
-/* REVISIT there must be a better way than having two sets
- * of debug calls ...
- */
-
-#undef DBG
-#undef VDBG
-#undef ERROR
-#undef INFO
-
-#define xprintk(d, level, fmt, args...) \
-	printk(level "%s: " fmt , (d)->net->name , ## args)
-
-#ifdef DEBUG
-#undef DEBUG
-#define DBG(dev, fmt, args...) \
-	xprintk(dev , KERN_DEBUG , fmt , ## args)
-#else
-#define DBG(dev, fmt, args...) \
-	do { } while (0)
-#endif /* DEBUG */
-
-#ifdef VERBOSE_DEBUG
-#define VDBG	DBG
-#else
-#define VDBG(dev, fmt, args...) \
-	do { } while (0)
-#endif /* DEBUG */
-
-#define ERROR(dev, fmt, args...) \
-	xprintk(dev , KERN_ERR , fmt , ## args)
-#define INFO(dev, fmt, args...) \
-	xprintk(dev , KERN_INFO , fmt , ## args)
 
 /*-------------------------------------------------------------------------*/
 
@@ -823,11 +815,12 @@ struct net_device *gether_setup_name_default(const char *netname)
 {
 	struct net_device	*net;
 	struct eth_dev		*dev;
+	int  usb_ncm_mac_flag;
+	int size, value;
 
 	net = alloc_etherdev(sizeof(*dev));
 	if (!net)
 		return ERR_PTR(-ENOMEM);
-
 	dev = netdev_priv(net);
 	spin_lock_init(&dev->lock);
 	spin_lock_init(&dev->req_lock);
@@ -843,18 +836,25 @@ struct net_device *gether_setup_name_default(const char *netname)
 	/* network device setup */
 	dev->net = net;
 	dev->qmult = QMULT_DEFAULT;
+
 	snprintf(net->name, sizeof(net->name), "%s%%d", netname);
-
-	eth_random_addr(dev->dev_mac);
-	pr_warn("using random %s ethernet address\n", "self");
-	eth_random_addr(dev->host_mac);
-	pr_warn("using random %s ethernet address\n", "host");
-
+	usb_ncm_mac_flag = sprd_get_usb_ncm_mac();
+	if (usb_ncm_mac_flag == 12) {
+		for (size = 0; size < ETH_ALEN  && sscanf(usb_ncm_mac + size * 2, "%2x", &value) == 1; size++) {
+			dev->dev_mac[size] = value;
+			dev->host_mac[size] = value;
+		}
+		pr_info("OWNER Ncm HOST MAC %pM\n", dev->host_mac);
+	} else {
+		eth_random_addr(dev->dev_mac);
+		pr_warn("using random %s ethernet address\n", "device");
+		eth_random_addr(dev->host_mac);
+		pr_warn("using random %s ethernet address\n", "host");
+	}
 	net->netdev_ops = &eth_netdev_ops;
 
 	net->ethtool_ops = &ops;
 	SET_NETDEV_DEVTYPE(net, &gadget_type);
-
 	/* MTU range: 14 - 15412 */
 	net->min_mtu = ETH_HLEN;
 	net->max_mtu = GETHER_MAX_MTU_SIZE;
@@ -973,6 +973,8 @@ int gether_get_host_addr_cdc(struct net_device *net, char *host_addr, int len)
 
 	dev = netdev_priv(net);
 	snprintf(host_addr, len, "%pm", dev->host_mac);
+
+	string_upper(host_addr, host_addr);
 
 	return strlen(host_addr);
 }

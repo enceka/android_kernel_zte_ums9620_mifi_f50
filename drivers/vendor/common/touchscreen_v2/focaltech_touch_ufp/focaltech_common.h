@@ -108,8 +108,12 @@
 #define FTS_REG_FOD_VALUE                   0x02
 #define FTS_REG_REPORT_RATE                 0x88
 #define FTS_REG_GAME_MODE                   0xC4
-
-
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+#define FTS_EX_DIFF_EN						0x9D
+#define FTS_EX_DIFF_PACK_NUM				0x9C
+#define FTS_EX_DIFF_BUF0					0x7E
+#endif
+#define FTS_REG_INT_OUT_TEST                0x08
 #define FTS_SYSFS_ECHO_ON(buf)      (buf[0] == '1')
 #define FTS_SYSFS_ECHO_OFF(buf)     (buf[0] == '0')
 
@@ -161,15 +165,18 @@ struct ts_ic_info {
 *****************************************************************************/
 #if FTS_DEBUG_EN
 #define FTS_DEBUG(fmt, args...) do { \
-    printk("[FTS_TS]%s:"fmt"\n", __func__, ##args); \
+    pr_info("[ZTE_LDD_TP][TPD_FTS_TS/D]%s:"fmt"\n", __func__, ##args); \
+    tpd_save_last_log("[ZTE_LDD_TP][TPD_FTS_TS/D]%s:"fmt"\n", __func__, ##args);\
 } while (0)
 
 #define FTS_FUNC_ENTER() do { \
-    printk("[FTS_TS]%s: Enter\n", __func__); \
+    pr_info("[ZTE_LDD_TP][TPD_FTS_TS/D]%s: Enter\n", __func__); \
+    tpd_save_last_log("[ZTE_LDD_TP][TPD_FTS_TS/D]%s: Enter\n", __func__); \
 } while (0)
 
 #define FTS_FUNC_EXIT() do { \
-    printk("[FTS_TS]%s: Exit(%d)\n", __func__, __LINE__); \
+    pr_info("[ZTE_LDD_TP][TPD_FTS_TS/D]%s: Exit(%d)\n", __func__, __LINE__); \
+    tpd_save_last_log("[ZTE_LDD_TP][TPD_FTS_TS/D]%s: Exit(%d)\n", __func__, __LINE__); \
 } while (0)
 #else /* #if FTS_DEBUG_EN*/
 #define FTS_DEBUG(fmt, args...)
@@ -178,10 +185,12 @@ struct ts_ic_info {
 #endif
 
 #define FTS_INFO(fmt, args...) do { \
-    printk(KERN_INFO "[FTS_TS/I]%s:"fmt"\n", __func__, ##args); \
+    pr_info("[ZTE_LDD_TP][TPD_FTS_TS/I]%s:"fmt"\n", __func__, ##args); \
+    tpd_save_last_log("[ZTE_LDD_TP][TPD_FTS_TS/I]%s:"fmt"\n", __func__, ##args); \
 } while (0)
 
 #define FTS_ERROR(fmt, args...) do { \
-    printk(KERN_ERR "[FTS_TS/E]%s:"fmt"\n", __func__, ##args); \
+    pr_err("[ZTE_LDD_TP][TPD_FTS_TS/E]%s:"fmt"\n", __func__, ##args); \
+    tpd_save_last_log("[ZTE_LDD_TP][TPD_FTS_TS/E]%s:"fmt"\n", __func__, ##args); \
 } while (0)
 #endif /* __LINUX_FOCALTECH_COMMON_H__ */

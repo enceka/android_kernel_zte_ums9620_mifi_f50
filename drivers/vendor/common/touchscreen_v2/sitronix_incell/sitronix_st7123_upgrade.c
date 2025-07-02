@@ -13,6 +13,8 @@
 #define st_usleep usleep
 #define st_int int
 
+extern struct ts_firmware *sitronix_adb_upgrade_firmware;
+
 int st_icp_flash_read(st_u8 *data, int off, int len);
 bool st_icp_flash_wakeup(st_u16 *flash_write_block_size);
 
@@ -1181,39 +1183,72 @@ int sitronix_do_upgrade_hostdownload(void)
 int sitronix_do_upgrade(void)
 {
 	int ret = 0;
-	
+	int tp_time = 0;
+
 #ifdef ST_UPGRADE_USE_REQUESTFW_BUF
 	int retry = 0;
 	const struct firmware *fw = NULL;
+
+	tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
 	if(gts->fw_request_status == 0){
 		dump_buf_size = 0;
-		while(retry < 3) {
-			//ret = request_firmware(&fw, ST_REQUESTFW_DF_PATH, &gts->pdev->dev);
-			//stmsg("request_firmware PATH = %s\n", fw_path);
-			ret = request_firmware(&fw, fw_path, &gts->pdev->dev);
-			if (ret) {
-				sterr("request_firmware fail - %d\n", retry);
-				retry ++;
+		if (sitronix_adb_upgrade_firmware) {
+			if (sitronix_adb_upgrade_firmware->size > ST_DUMP_MAX_LEN) {
+				stmsg("sitronix_adb_upgrade_firmware->size > ST_DUMP_MAX_LEN.\n");
+				return -ENOENT;
 			}
-			else
-				retry = 3; 
-		}
-		if( ret )
-			return -ENOENT;
-		else{
-			//stmsg("request_firmware OK (%d)!\n");
-			//dump_buf = (unsigned char *) fw->data;
-			dump_buf_size = fw->size;
-			if(dump_buf_size > ST_DUMP_MAX_LEN){
-				dump_buf_size = ST_DUMP_MAX_LEN;
-			}
-			memcpy(&dump_buf[0], fw->data, dump_buf_size);
+			dump_buf_size = sitronix_adb_upgrade_firmware->size;
+			memcpy(&dump_buf[0], sitronix_adb_upgrade_firmware->data, sitronix_adb_upgrade_firmware->size);
 			gts->fw_request_status = 1;
-			stmsg("request_firmware %s OK (%d)\n", fw_path, dump_buf_size);
+			stmsg("get firmware from adb success .firmware size is %d \n", dump_buf_size);
+			usleep_range(10000, 11000);
+		} else {
+			stmsg("sitronix_adb_upgrade_firmware is null .\n");
+			while(retry < 3) {
+				//ret = request_firmware(&fw, ST_REQUESTFW_DF_PATH, &gts->pdev->dev);
+				//stmsg("request_firmware PATH = %s\n", fw_path);
+				ret = request_firmware(&fw, fw_path, &gts->pdev->dev);
+				if (ret) {
+					sterr("request_firmware fail - %d\n", retry);
+					retry ++;
+				}
+				else
+					retry = 3;
+			}
+
+			if (ret) {
+#ifdef SITRONIX_DEFAULT_FIRMWARE
+				ret = request_firmware(&fw, DEFAULT_UPDATE_FIRMWARE_NAME, &gts->pdev->dev);
+				if (ret) {
+					sterr("request_default_firmware fail - %d\n", ret);
+					tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
+					return -ENOENT;
+				} else
+					stmsg("request_default_firmware %s OK \n", DEFAULT_UPDATE_FIRMWARE_NAME);
+#else
+				return -ENOENT;
+#endif
+			} else
+				stmsg("request_firmware %s OK \n", fw_path);
+			if (!ret) {
+				//stmsg("request_firmware OK (%d)!\n");
+				//dump_buf = (unsigned char *) fw->data;
+				if (fw == NULL) {
+					sterr("alloc firmware is null .\n");
+					return -ENOENT;
+				}
+				dump_buf_size = fw->size;
+				if(dump_buf_size > ST_DUMP_MAX_LEN){
+					dump_buf_size = ST_DUMP_MAX_LEN;
+				}
+				memcpy(&dump_buf[0], fw->data, dump_buf_size);
+				gts->fw_request_status = 1;
+				stmsg("firmware size is %d \n", dump_buf_size);
+			}
 		}
 	}
 #endif
-	/* if (gts->host_if->bus_type == BUS_SPI && !gts->host_if->is_use_flash) */	
+	/* if (gts->host_if->bus_type == BUS_SPI && !gts->host_if->is_use_flash) */
 	if(!gts->host_if->is_use_flash)
 	{
 		ret = sitronix_do_upgrade_hostdownload();
@@ -1228,6 +1263,11 @@ int sitronix_do_upgrade(void)
 	release_firmware(fw);
 	dump_buf_size = 0;
 #endif
+	tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+	TPD_DMESG("tp_time sitronix fw upgrade time:%d.", tp_time);
+	if (ret >= 0) {
+		tpd_cdev->fw_ready = true;
+	}
 	return ret;
 
 }
@@ -1235,7 +1275,7 @@ int sitronix_do_upgrade(void)
 void sitronix_replace_dump_buf(unsigned char *id)
 {
 #ifdef ST_REPLACE_DUMP_BY_DISPLAY_ID
- 
+
 	if(id[0] == dump_id_1[0] && id[1] == dump_id_1[1] && id[2] == dump_id_1[2]) {
 #ifdef ST_UPGRADE_USE_REQUESTFW_BUF
 		//set as specific request firmware path by ID_1
@@ -1248,7 +1288,7 @@ void sitronix_replace_dump_buf(unsigned char *id)
 #endif	//end of ST_UPGRADE_USE_REQUESTFW_BUF
 	}
 #else
-	//set as default request firmware path 
+	//set as default request firmware path
 	memset(fw_path, 0, sizeof(fw_path));
 	strcpy(fw_path, ST_REQUESTFW_DF_PATH);
 #endif	/* ST_REPLACE_DUMP_BY_DISPLAY_ID */

@@ -902,6 +902,7 @@ out:
 int ili_fw_upgrade(int op)
 {
 	int i, ret = 0, retry = 3;
+	int tp_time = 0;
 	static bool get_firmware;
 
 	if (!ilits->boot || ilits->force_fw_update || ERR_ALLOC_MEM(pfw)) {
@@ -924,9 +925,7 @@ int ili_fw_upgrade(int op)
 
 		if (ilitek_tdd_fw_hex_open(op, pfw) < 0) {
 			ILI_ERR("Open hex file fail, try upgrade from ILI file\n");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
 			/*
 			 * Users might not be aware of a broken hex file when recovering
 			 * fw from ILI file. We should force them to check
@@ -961,7 +960,7 @@ int ili_fw_upgrade(int op)
 		ILI_ERR("Convert ILI file error\n");
 		return -EFW_CONVERT_FILE;
 	}
-
+	tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
 #if (ENGINEER_FLOW)
 	if (!ilits->eng_flow) {
 		do {
@@ -973,9 +972,7 @@ int ili_fw_upgrade(int op)
 		} while (--retry > 0);
 
 		if (ret != UPDATE_PASS) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 			ILI_ERR("Failed to upgrade fw %d times, erasing iram\n", retry);
 			if (ili_reset_ctrl(ilits->reset) < 0)
 					ILI_ERR("TP reset failed while erasing data\n");
@@ -998,9 +995,7 @@ int ili_fw_upgrade(int op)
 	} while (--retry > 0);
 
 	if (ret != UPDATE_PASS) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 		ILI_ERR("Failed to upgrade fw %d times, erasing iram\n", retry);
 		if (ili_reset_ctrl(ilits->reset) < 0)
 				ILI_ERR("TP reset failed while erasing data\n");
@@ -1021,6 +1016,8 @@ out:
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	tpd_cdev->ic_tpinfo.firmware_ver = ilits->chip->fw_ver;
 #endif
+	tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+	TPD_DMESG("tp_time fts fw upgrade time:%d.", tp_time);
 	return ret;
 }
 

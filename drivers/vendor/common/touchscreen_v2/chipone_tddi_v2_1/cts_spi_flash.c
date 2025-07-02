@@ -217,13 +217,13 @@ int cts_prepare_flash_operation(struct cts_device *cts_dev)
         hwid = cts_dev->hwdata->hwid;
         if (hwid == CTS_DEV_HWID_ICNL9911 || hwid == CTS_DEV_HWID_ICNL9911C \
          || hwid == CTS_DEV_HWID_ICNL9951) {
-        ret = cts_hw_reg_writeb_retry(cts_dev, CTS_DEV_HW_REG_CLK_DIV_CFG, 0x0C, 5, 0);
-        if (ret) {
-            cts_err("Write DIVA failed %d(%s)",
-                ret, cts_strerror(ret));
-            goto err_enter_normal_mode;
+            ret = cts_hw_reg_writeb_retry(cts_dev, CTS_DEV_HW_REG_CLK_DIV_CFG, 0x0C, 5, 0);
+            if (ret) {
+                cts_err("Write DIVA failed %d(%s)",
+                    ret, cts_strerror(ret));
+                goto err_enter_normal_mode;
             }
-        }
+         }    
 
         /* Reset SFCTL */
         ret = cts_hw_reg_writeb_retry(cts_dev, CTS_DEV_HW_REG_RESET_CONFIG, 0xFB, 5, 0);

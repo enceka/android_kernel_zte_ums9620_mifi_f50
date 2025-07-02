@@ -518,10 +518,7 @@ static int semi_touch_probe(struct i2c_client *client, const struct i2c_device_i
 	ret = semi_touch_init(client);
 	if (ret == -SEMI_DRV_ERR_HAL_IO) {
 		semi_touch_deinit(client);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_ILITEK)
 		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_ILITEK;
-#endif
 		check_return_if_fail(ret, NULL);
 	}
 	tpd_cdev->TP_have_registered = true;
@@ -624,6 +621,7 @@ int semi_touch_resume_entry(struct device *dev)
 		if (!wait_for_completion_timeout(&ufp_tp_ops.ufp_completion, msecs_to_jiffies(1000))) {
 			kernel_log_d("tpd:aod finger down timeout!");
 		}
+		ufp_tp_ops.aod_fp_down = false;
 	}
 	ufp_tp_ops.wait_completion = false;
 #endif
@@ -641,7 +639,7 @@ int semi_touch_resume_entry(struct device *dev)
 #endif
 	}
 	/* reset tp + iic detected */
-	if (tpd_cdev->one_key_enable)
+	if (tpd_cdev->one_key_enable && st_dev.is_single_tap)
 		semi_touch_guesture_switch(0);
 	else
 		semi_touch_reset_and_detect();

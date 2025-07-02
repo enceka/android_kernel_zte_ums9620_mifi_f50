@@ -1,0 +1,18 @@
+
+&vddcama0 {
+	regulator-boot-on;
+};
+
+&vddcama1 {
+	regulator-boot-on;
+};
+
+
+/ {
+	zte_ldo_leds: zte_ldo_leds {
+		compatible = "zte-ldo-leds";
+		vddcama0-supply = <&vddcama0>;
+		vddcama1-supply = <&vddcama1>;
+		vddcama2-supply = <&vddcama2>;
+	};
+};

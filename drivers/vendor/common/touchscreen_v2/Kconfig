@@ -14,6 +14,7 @@ source "drivers/vendor/common/touchscreen_v2/goodix_berlin_driver_v2/Kconfig"
 source "drivers/vendor/common/touchscreen_v2/chipone_tddi_v2/Kconfig"
 source "drivers/vendor/common/touchscreen_v2/chipone_tddi_v2_1/Kconfig"
 source "drivers/vendor/common/touchscreen_v2/chipone_tddi_v3/Kconfig"
+source "drivers/vendor/common/touchscreen_v2/chipone_tddi_pad/Kconfig"
 source "drivers/vendor/common/touchscreen_v2/chsc5xxx/Kconfig"
 source "drivers/vendor/common/touchscreen_v2/ilitek_tddi_v3/Kconfig"
 source "drivers/vendor/common/touchscreen_v2/focaltech_touch_V3_3/Kconfig"
@@ -27,6 +28,8 @@ source "drivers/vendor/common/touchscreen_v2/betterlife_ts/Kconfig"
 source "drivers/vendor/common/touchscreen_v2/sitronix_incell/Kconfig"
 source "drivers/vendor/common/touchscreen_v2/omnivision_tcm/Kconfig"
 source "drivers/vendor/common/touchscreen_v2/hxchipset_v3_3/Kconfig"
+source "drivers/vendor/common/touchscreen_v2/hxchipset_pad/Kconfig"
+source "drivers/vendor/common/touchscreen_v2/axs_touch/Kconfig"
 
 config TOUCHSCREEN_BOARD_NAME
 	string "config board firmware folder"
@@ -62,7 +65,27 @@ config TOUCHSCREEN_POINT_SIMULAT_UF
 config TOUCHSCREEN_LCD_NOTIFY
  	bool "lcd state notify"
  	default n
-	depends on ZTE_LCD_COMMON_FUNCTION
  	help
  	  Say Y here if you use lcd notify tp suspend/resume.If unsure, say N.
-
+config TOUCHSCREEN_LCD_SUPPORT_PSENSOR
+ 	bool "incell tp promixity mode"
+ 	default n
+	depends on TOUCHSCREEN_LCD_NOTIFY
+ 	help
+ 	  Say Y here if you use incell tp promixity mode.If unsure, say N.
+config TOUCHSCREEN_PSENSOR_REPORT_CHECK
+	bool "tp promixity mode report near and far"
+	default n
+	help
+	  Say Y here if you use tp promixity mode.If unsure, say N.
+config TOUCHSCREEN_TEMP_CTRL_ZONE_NOTIFY
+ 	bool " temperature control zone down/up notify"
+ 	default n
+	depends on TOUCHSCREEN_VENDOR_V3
+ 	help
+ 	  Say Y here if you use temperature control zone down/up notify.If unsure, say N.
+config TOUCHSCREEN_KNUCKLE
+ 	bool "knuckle algo"
+ 	default n
+ 	help
+ 	  Say Y here if you use knuckle algo.If unsure, say N.

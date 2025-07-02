@@ -369,6 +369,7 @@ static int cts_tcs_spi_xtrans(const struct cts_device *cts_dev, u8 *tx,
     crc16_calc = cts_crc16(rx, rxlen - 2);
     if (crc16_recv != crc16_calc) {
         cts_err("crc error: recv %04x != %04x calc", crc16_recv, crc16_calc);
+        tpd_zlog_record_notify(TP_CRC_ERROR_NO);
         return -EIO;
     }
     udelay(100);
@@ -1658,6 +1659,18 @@ int cts_tcs_set_proximity_mode(struct cts_device *cts_dev, u8 enable)
     if (ret != 0)
         cts_err("Set proximity failed!");
     return ret;
+}
+
+void cts_tcs_get_proximity_mode(const struct cts_device *cts_dev, u8 *enabled)
+{
+	u8 buf[1] = { 0 };
+	int ret;
+
+	ret = cts_tcs_read(cts_dev, TP_STD_CMD_PARA_PROXI_EN_RW,
+			buf, sizeof(buf));
+	if (ret == 0) {
+		*enabled = buf[0];
+	}
 }
 
 int cts_tcs_set_knuckle_mode(struct cts_device *cts_dev, u8 enable)

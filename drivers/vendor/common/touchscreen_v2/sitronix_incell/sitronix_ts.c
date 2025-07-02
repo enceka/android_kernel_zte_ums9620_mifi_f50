@@ -41,7 +41,7 @@ static int sitronix_drm_notifier_callback(struct notifier_block *self, unsigned 
 static int sitronix_fb_notifier_callback(struct notifier_block *self, unsigned long event, void *data);
 #endif	//#ifndef SITRONIX_PLATFORM_MTK_TDP
 #endif //!SPRD_SYSFS_SUSPEND_RESUME
-#endif	
+#endif
 #elif (defined(CONFIG_DRM) && defined(CONFIG_DRM_PANEL_NOTIFIER))
 static void sitronix_ts_resume_work(struct work_struct *work);
 static int sitronix_drm_notifier_callback(struct notifier_block *self, unsigned long event, void *data);
@@ -67,7 +67,7 @@ int sitronix_ts_irq_enable(struct sitronix_ts_data *ts_data, bool enable)
 	if (!enable && sitronix_irq_status)
 		disable_irq_nosync(ts_data->irq);
 
-	sitronix_irq_status = enable;	
+	sitronix_irq_status = enable;
 
 	return ret;
 }
@@ -177,12 +177,12 @@ void sitronix_ts_report_swu(struct input_dev *input_dev, uint8_t swu_id)
 void sitronix_ts_report_palm(struct input_dev *input_dev)
 {
 	stmsg("sitronix_ts_report_palm\n");
-	
+
 	input_report_key(input_dev, ST_KEY_GESTURE_POWER, 1);
 	input_sync(input_dev);
 	input_report_key(input_dev, ST_KEY_GESTURE_POWER, 0);
 	input_sync(input_dev);
-	
+
 }
 
 void sitronix_ts_report_proximity_demo(struct input_dev *input_dev, uint8_t proximity_id)
@@ -197,14 +197,14 @@ void sitronix_ts_report_proximity_demo(struct input_dev *input_dev, uint8_t prox
 		sitronix_write_driver_cmd(0x28, wbuf, 0);
 		sitronix_write_driver_cmd(0x10, wbuf, 0);
 		msleep(20);
-		
+
 		stmsg("proximity status 3 , power down\n");
 		sitronix_ts_powerdown(gts, true);
 		msleep(20);
 		stmsg("proximity status 3 , sleep out\n");
 		sitronix_ts_proximity_control_sensing(gts, true);
 	}
-	
+
 	if (ST_PROXIMITY_FACEOUT_LEVEL_2_ENABLE == 1 && proximity_id == ST_PROXIMITY_FACEOUT_LEVEL_2_VALUE) {
 		//inforce
 		stmsg("proximity status 5 , disp on\n");
@@ -212,11 +212,11 @@ void sitronix_ts_report_proximity_demo(struct input_dev *input_dev, uint8_t prox
 		//input_sync(input_dev);
 		//input_report_key(input_dev, ST_KEY_GESTURE_POWER, 0);
 		//input_sync(input_dev);
-		
+
 		sitronix_write_driver_cmd(0x29, wbuf, 0);
 		msleep(120);
 		stmsg("proximity status 5 , power up\n");
-		sitronix_ts_powerdown(gts,false);	
+		sitronix_ts_powerdown(gts,false);
 		gts->proximity_status = 0;
 	}
 }
@@ -228,29 +228,29 @@ void sitronix_ts_report_proximity(struct input_dev *input_dev, uint8_t proximity
 		input_report_abs(input_dev, SITRONIX_PROXIMITY_REPORT_ABS, ST_PROXIMITY_FACEIN_LEVEL_1_REPORT);
 		input_sync(input_dev);
 	}
-	
+
 	if (ST_PROXIMITY_FACEIN_LEVEL_2_ENABLE == 1 && proximity_id == ST_PROXIMITY_FACEIN_LEVEL_2_VALUE) {
 		input_report_abs(input_dev, SITRONIX_PROXIMITY_REPORT_ABS, ST_PROXIMITY_FACEIN_LEVEL_2_REPORT);
 		input_sync(input_dev);
 	}
-	
+
 	if (ST_PROXIMITY_FACEIN_LEVEL_3_ENABLE == 1 && proximity_id == ST_PROXIMITY_FACEIN_LEVEL_3_VALUE) {
 		gts->proximity_is_facein = true;
 		input_report_abs(input_dev, SITRONIX_PROXIMITY_REPORT_ABS, ST_PROXIMITY_FACEIN_LEVEL_3_REPORT);
-		input_sync(input_dev);		
+		input_sync(input_dev);
 	}
-	
+
 	if (ST_PROXIMITY_FACEOUT_LEVEL_1_ENABLE == 1 && proximity_id == ST_PROXIMITY_FACEOUT_LEVEL_1_VALUE) {
 		input_report_abs(input_dev, SITRONIX_PROXIMITY_REPORT_ABS, ST_PROXIMITY_FACEOUT_LEVEL_1_REPORT);
 		input_sync(input_dev);
 	}
-	
+
 	if (ST_PROXIMITY_FACEOUT_LEVEL_2_ENABLE == 1 && proximity_id == ST_PROXIMITY_FACEOUT_LEVEL_2_VALUE) {
 		gts->proximity_is_facein = false;
 		input_report_abs(input_dev, SITRONIX_PROXIMITY_REPORT_ABS, ST_PROXIMITY_FACEOUT_LEVEL_2_REPORT);
 		input_sync(input_dev);
 	}
-	
+
 	if (ST_PROXIMITY_FACEOUT_LEVEL_3_ENABLE == 1 && proximity_id == ST_PROXIMITY_FACEOUT_LEVEL_3_VALUE) {
 		input_report_abs(input_dev, SITRONIX_PROXIMITY_REPORT_ABS, ST_PROXIMITY_FACEOUT_LEVEL_3_REPORT);
 		input_sync(input_dev);
@@ -323,7 +323,6 @@ static irqreturn_t sitronix_ts_irq_handler(int irq, void *data)
 
 	if (ts_data->is_support_proximity && ts_data->proximity_flag ) {
 		touch_count = (ts_data->coord_buf[0] >> 4 ) & 0x07;
-		
 		if ( touch_count != 0 && touch_count != ts_data->proximity_status ) {
 			stmsg("proximity status: %d \n", touch_count);
 			ts_data->proximity_status = touch_count;
@@ -459,12 +458,12 @@ static int sitronix_ts_input_dev_proximity_init(struct sitronix_ts_data *ts_data
 	int ret = 0;
 
 	ts_data->input_dev_proximity = input_allocate_device();
-	
+
 	if (ts_data->input_dev_proximity == NULL) {
 		sterr("%s: Can not allocate input device proximity!\n", __func__);
 		return -ENOMEM;
 	}
-	
+
 	ts_data->input_dev_proximity->name = "sitronix_touch_proximity";
 	ts_data->input_dev_proximity->id.bustype = ts_data->host_if->bus_type;
 	ts_data->input_dev_proximity->dev.parent = ts_data->pdev->dev.parent;
@@ -481,7 +480,7 @@ static int sitronix_ts_input_dev_proximity_init(struct sitronix_ts_data *ts_data
 		sterr("%s: Failed to register input device proximity\n", __func__);
 		return ret;
 	}
-	
+
 	return ret;
 }
 static int sitronix_ts_input_dev_init(struct sitronix_ts_data *ts_data)
@@ -563,7 +562,7 @@ static void sitronix_ts_check_display_id(void)
 {
 	unsigned char id[3];
 	int ret = 0;
-	
+
 	sitronix_get_fw();
 	ret = sitronix_get_display_id(id);
 	if(ret < 0) {
@@ -621,12 +620,11 @@ static ssize_t ts_suspend_show(struct device *dev, struct device_attribute *attr
 
 static ssize_t ts_suspend_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
-	if ((buf[0] == '1') && !gts->in_suspend){
-		
+	if ((buf[0] == '1') && !gts->in_suspend) {
 		cancel_work_sync(&gts->resume_work);
 		sitronix_ts_suspend(&gts->pdev->dev);
 	}
-	else if ((buf[0] == '0') && gts->in_suspend){
+	else if ((buf[0] == '0') && gts->in_suspend) {
 		queue_work(gts->workqueue, &gts->resume_work);
 	}
 
@@ -656,14 +654,12 @@ static ssize_t sitronix_gesture_store(struct device *dev,struct device_attribute
         enable = 1;
     }
     if (enable) {
-		sitronix_mode_switch(ST_MODE_SWU, true);	
+		sitronix_mode_switch(ST_MODE_SWU, true);
 		gesture_mode_flag = 1;
-	
     }
     else {
-		sitronix_mode_switch(ST_MODE_SWU, false);	
+		sitronix_mode_switch(ST_MODE_SWU, false);
 		gesture_mode_flag = 0;
-		
     }
 
     return count;
@@ -715,14 +711,14 @@ int sitronix_sysfs_remove_device(struct device *dev) {
 #endif /*SPRD_SYSFS_SUSPEND_RESUME*/
 
 #ifdef SITRONIX_PLATFORM_QUALCOMM_DRM
-#if (defined(CONFIG_DRM) && defined(CONFIG_DRM_PANEL_NOTIFIER)) 
+#if (defined(CONFIG_DRM) && defined(CONFIG_DRM_PANEL_NOTIFIER))
 static int drm_check_dt(struct device_node *np)
 {
     int i = 0;
     int count = 0;
     struct device_node *node = NULL;
     struct drm_panel *panel = NULL;
-	
+
 	count = of_count_phandle_with_args(np, "panel1", NULL);
 	if (count <= 0) {
 		sterr("find drm_panel count(%d) fail", count);
@@ -738,7 +734,7 @@ static int drm_check_dt(struct device_node *np)
 			gts->active_panel = panel;
 			return 0;
 		}
-	}	
+	}
 
     sterr("no find drm_panel");
     return -ENODEV;
@@ -761,7 +757,7 @@ static int sitronix_ts_probe(struct platform_device *pdev)
 	rbuf = NULL;
 
 	stmsg("%s:%u \n", __func__, __LINE__);
-	
+
 	ST_START_PRINT;
 	host_if = pdev->dev.platform_data;
 	if (!host_if) {
@@ -774,7 +770,7 @@ static int sitronix_ts_probe(struct platform_device *pdev)
 		sterr("%s: Alloc memory for ts_data failed!\n", __func__);
 		return -ENOMEM;
 	}
-	
+
 
 	ts_data->skip_first_resume = true;
 	ts_data->name = pdev->name;
@@ -796,7 +792,7 @@ static int sitronix_ts_probe(struct platform_device *pdev)
 #endif
 
 	platform_set_drvdata(pdev, ts_data);
-	
+
 	wbuf = kzalloc((SITRONIX_RW_BUF_LEN + 32), GFP_KERNEL);
 	if (!wbuf) {
 		sterr("%s: Alloc memory for wbuf failed!\n", __func__);
@@ -807,7 +803,7 @@ static int sitronix_ts_probe(struct platform_device *pdev)
 		sterr("%s: Alloc memory for rbuf failed!\n", __func__);
 		return -ENOMEM;
 	}
-	
+
 	sitronix_ts_reset_device(gts);
 	if (!sitronix_ts_check_ic_sfrver()) {
 		sterr("%s: Failed to sitronix_ts_check_ic_sfrver\n", __func__);
@@ -853,12 +849,12 @@ static int sitronix_ts_probe(struct platform_device *pdev)
 		ret = -EINVAL;
 		goto err_return;
 	}
-	
+
 #ifdef SITRONIX_SUPPORT_PROXIMITY
 #ifdef SITRONIX_PROXIMITY_DEMO
 	ts_data->proximity_demo_enable = true;
 #endif
-#endif	
+#endif
 
 	if (ts_data->is_support_proximity) {
 		ret = sitronix_ts_input_dev_proximity_init(ts_data);
@@ -926,7 +922,7 @@ static int sitronix_ts_probe(struct platform_device *pdev)
 		goto err_create_sitronix_ts_workqueue_failed;
 	}
 	INIT_WORK(&ts_data->resume_work, sitronix_ts_resume_work);
-	
+
 	ts_data->drm_notif.notifier_call = sitronix_drm_notifier_callback;
 
 	if (ts_data->active_panel) {
@@ -974,10 +970,10 @@ static int sitronix_ts_probe(struct platform_device *pdev)
 		sterr("Failed to create proc node, err: %d\n", ret);
 		goto err_remove_st_proc;
 	}
-	tpd_cdev->TP_have_registered = true;
 	tpd_cdev->tp_chip_id = TS_CHIP_SITRONIX;
 	sitronix_register_fw_class();
-	
+	tpd_cdev->TP_have_registered = true;
+
 	return ret;
 
 #if defined(CONFIG_FB)
@@ -1026,7 +1022,7 @@ err_return:
 		input_free_device(ts_data->input_dev);
 		ts_data->input_dev = NULL;
 	}
-	
+
 	if (ts_data->input_dev_proximity) {
 		input_unregister_device(ts_data->input_dev_proximity);
 		input_free_device(ts_data->input_dev_proximity);
@@ -1047,10 +1043,10 @@ err_return:
 	}
 
 	if (rbuf){
-		kfree(rbuf);	
+		kfree(rbuf);
 		rbuf = NULL;
 	}
-		
+	tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_SITRONIX;
 	return ret;
 }
 
@@ -1097,11 +1093,13 @@ static int sitronix_ts_remove(struct platform_device *pdev)
 		input_unregister_device(ts_data->input_dev);
 		input_free_device(ts_data->input_dev);
 	}
-	
+
 	if (ts_data->input_dev_proximity) {
 		input_unregister_device(ts_data->input_dev_proximity);
 		input_free_device(ts_data->input_dev_proximity);
 	}
+
+	mutex_destroy(&ts_data->mutex);
 
 	if (ts_data)
 		kfree(ts_data);
@@ -1112,11 +1110,9 @@ static int sitronix_ts_remove(struct platform_device *pdev)
 	}
 
 	if (rbuf){
-		kfree(rbuf);	
+		kfree(rbuf);
 		rbuf = NULL;
 	}
-
-	mutex_destroy(&ts_data->mutex);
 
 	return 0;
 }
@@ -1140,7 +1136,7 @@ int sitronix_ts_suspend(struct device *dev)
 		mutex_unlock(&gts->mutex);
 		return 0;
 	}
-*/	
+*/
 
 #ifdef SITRONIX_MONITOR_THREAD
 #ifdef MONITOR_THREAD_STOP_IN_SUSPEND
@@ -1149,8 +1145,8 @@ int sitronix_ts_suspend(struct device *dev)
 	if (!gts->swu_flag || gts->proximity_flag) {
 		sitronix_mt_suspend();
 	}
-#endif /* MONITOR_THREAD_STOP_IN_SUSPEND */	
-#endif /* SITRONIX_MONITOR_THREAD */	
+#endif /* MONITOR_THREAD_STOP_IN_SUSPEND */
+#endif /* SITRONIX_MONITOR_THREAD */
 	if (gts->swu_flag) {
 		sitronix_ts_set_smart_wake_up(gts, true);
 		enable_irq_wake(gts->irq);
@@ -1217,6 +1213,15 @@ int sitronix_ts_resume(struct device *dev)
 	gts->in_suspend = false;
 
 	sitronix_mode_restore();
+
+	stmsg("%s: gts->mode_flag[ST_MODE_HEADPHONE] = %d, headset_state = %d.\n", __func__, gts->mode_flag[ST_MODE_HEADPHONE], tpd_cdev->headset_state);
+	if (gts->mode_flag[ST_MODE_HEADPHONE] != tpd_cdev->headset_state) {
+		if (tpd_cdev->headset_state)
+			sitronix_mode_switch(ST_MODE_HEADPHONE, true);
+		else
+			sitronix_mode_switch(ST_MODE_HEADPHONE, false);
+	}
+
 	mutex_unlock(&gts->mutex);
 
 #ifdef SITRONIX_MONITOR_THREAD
@@ -1226,7 +1231,7 @@ int sitronix_ts_resume(struct device *dev)
 	if (!gts->swu_flag || gts->proximity_flag) {
 		sitronix_mt_resume();
 	}
-#endif /* MONITOR_THREAD_STOP_IN_SUSPEND */		
+#endif /* MONITOR_THREAD_STOP_IN_SUSPEND */
 #endif /* SITRONIX_MONITOR_THREAD */
 	stmsg("end sitronix_ts_resume\n");
 	return 0;
@@ -1268,7 +1273,7 @@ static int sitronix_drm_notifier_callback(struct notifier_block *self, unsigned 
 			}
 #ifndef SITRONIX_TP_RESUME_BEFORE_DISPON
 			if (*blank == MSM_DRM_BLANK_UNBLANK) {
-				//stdbg("event=%lu, *blank=%d\n", event, *blank);				
+				//stdbg("event=%lu, *blank=%d\n", event, *blank);
 				queue_work(ts->workqueue, &ts->resume_work);
 			}
 #endif /* SITRONIX_TP_RESUME_BEFORE_DISPON */
@@ -1305,10 +1310,10 @@ static int sitronix_fb_notifier_callback(struct notifier_block *self, unsigned l
 		blank = evdata->data;
 		if (*blank == FB_BLANK_POWERDOWN) {
 			/* stmsg("event=%lx, *blank=%d\n", event, *blank); */
-			cancel_work_sync(&ts->resume_work);			
-			sitronix_ts_suspend(&ts->pdev->dev);			
+			cancel_work_sync(&ts->resume_work);
+			sitronix_ts_suspend(&ts->pdev->dev);
 		}
-#ifndef SITRONIX_TP_RESUME_BEFORE_DISPON		
+#ifndef SITRONIX_TP_RESUME_BEFORE_DISPON
 		if (*blank == FB_BLANK_UNBLANK) {
 			/* stmsg("event=%lu, *blank=%d\n", event, *blank); */
 			/* sitronix_ts_resume(&ts->pdev->dev); */
@@ -1334,7 +1339,7 @@ static int sitronix_drm_notifier_callback(struct notifier_block *self, unsigned 
 	struct drm_panel_notifier *evdata = data;
 	int *blank;
 	struct sitronix_ts_data *ts =
-		container_of(self, struct sitronix_ts_data, drm_notif);		
+		container_of(self, struct sitronix_ts_data, drm_notif);
 	/* blank = evdata->data; */
 	/* stmsg("event = 0x%02X ,blank = 0x%02X\n",(int)event , *blank); */
 	/* stmsg("event = 0x%02X \n",(int)event ); */
@@ -1353,10 +1358,10 @@ static int sitronix_drm_notifier_callback(struct notifier_block *self, unsigned 
 		blank = evdata->data;
 		if (*blank == DRM_PANEL_BLANK_POWERDOWN) {
 			stmsg("event=%lx, *blank=%d\n", event, *blank);
-			cancel_work_sync(&ts->resume_work);			
-			sitronix_ts_suspend(&ts->pdev->dev);			
+			cancel_work_sync(&ts->resume_work);
+			sitronix_ts_suspend(&ts->pdev->dev);
 		}
-#ifndef SITRONIX_TP_RESUME_BEFORE_DISPON		
+#ifndef SITRONIX_TP_RESUME_BEFORE_DISPON
 		if (*blank == DRM_PANEL_BLANK_UNBLANK) {
 			stmsg("event=%lu, *blank=%d\n", event, *blank);
 			/* sitronix_ts_resume(&ts->pdev->dev); */
@@ -1391,14 +1396,14 @@ static int sitronix_pm_suspend(struct device *dev)
 }
 
 static int sitronix_pm_resume(struct device *dev)
-{	
+{
 	stmsg("pm resume");
 	return 0;
 }
 
 static const struct dev_pm_ops sitronix_ts_dev_pm_ops = {
-	.suspend = sitronix_pm_suspend, 
-	.resume  = sitronix_pm_resume, 
+	.suspend = sitronix_pm_suspend,
+	.resume  = sitronix_pm_resume,
 };
 #endif /* CONFIG_PM */
 
@@ -1441,7 +1446,7 @@ void sitronix_ts_reset_input_dev(void)
 		sitronix_ts_get_device_info(gts);
 		input_unregister_device(gts->input_dev);
 		input_free_device(gts->input_dev);
-		
+
 		sitronix_ts_input_dev_init(gts);
 	}
 }
@@ -1456,13 +1461,13 @@ static int sitronix_ts_init(void)
 	ret = sitronix_ts_spi_init();
 	if (ret  == 0)
 		platform_driver_register(&sitronix_ts_spi_driver);
-#endif 
+#endif
 
 #ifdef SITRONIX_INTERFACE_I2C
 	ret = sitronix_ts_i2c_init();
 	if (ret == 0)
 		platform_driver_register(&sitronix_ts_i2c_driver);
-#endif 
+#endif
 	return ret;
 }
 
@@ -1471,12 +1476,12 @@ static void sitronix_ts_exit(void)
 #ifdef SITRONIX_INTERFACE_SPI
 	platform_driver_unregister(&sitronix_ts_spi_driver);
 	sitronix_ts_spi_exit();
-#endif 
+#endif
 
 #ifdef SITRONIX_INTERFACE_I2C
 	platform_driver_unregister(&sitronix_ts_i2c_driver);
 	sitronix_ts_i2c_exit();
-#endif 
+#endif
 	return;
 }
 
@@ -1506,7 +1511,7 @@ static int tpd_local_init(void)
 /* called when loaded into kernel */
 /* static int __init tpd_driver_init(void)
 {
-	stmsg("Sitroinx touch panel driver init.(MTK_TPD)");	
+	stmsg("Sitroinx touch panel driver init.(MTK_TPD)");
 	tpd_get_dts_info();
 	if (tpd_driver_add(&tpd_device_driver) < 0) {
 		stmsg("add generic driver failed.");

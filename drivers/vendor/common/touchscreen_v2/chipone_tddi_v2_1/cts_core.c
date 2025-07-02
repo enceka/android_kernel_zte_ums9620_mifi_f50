@@ -378,19 +378,19 @@ static int cts_spi_readw(const struct cts_device *cts_dev,
     u8 addr_buf[4];
     u8 buff[2];
 
-	if (cts_dev->rtdata.addr_width == 2)
+    if (cts_dev->rtdata.addr_width == 2)
         put_unaligned_be16(addr, addr_buf);
-	else if (cts_dev->rtdata.addr_width == 3)
+    else if (cts_dev->rtdata.addr_width == 3)
         put_unaligned_be24(addr, addr_buf);
-	else {
+    else {
         cts_err("Readw invalid address width %u", cts_dev->rtdata.addr_width);
         return -EINVAL;
     }
 
     ret = cts_plat_spi_read(cts_dev->pdata, cts_dev->rtdata.slave_addr,
             addr_buf, cts_dev->rtdata.addr_width, buff, 2, retry, delay);
-	if (ret == 0)
-		*w = get_unaligned_le16(buff);
+    if (ret == 0)
+        *w = get_unaligned_le16(buff);
 
     return ret;
 }
@@ -402,19 +402,19 @@ static int cts_spi_readl(const struct cts_device *cts_dev,
     u8 addr_buf[4];
     u8 buff[4];
 
-	if (cts_dev->rtdata.addr_width == 2)
-		put_unaligned_be16(addr, addr_buf);
-	else if (cts_dev->rtdata.addr_width == 3)
-		put_unaligned_be24(addr, addr_buf);
-	else {
-		cts_err("Readl invalid address width %u", cts_dev->rtdata.addr_width);
-		return -EINVAL;
-	}
+    if (cts_dev->rtdata.addr_width == 2)
+        put_unaligned_be16(addr, addr_buf);
+    else if (cts_dev->rtdata.addr_width == 3)
+        put_unaligned_be24(addr, addr_buf);
+    else {
+        cts_err("Readl invalid address width %u", cts_dev->rtdata.addr_width);
+        return -EINVAL;
+    }
 
     ret = cts_plat_spi_read(cts_dev->pdata, cts_dev->rtdata.slave_addr,
             addr_buf, cts_dev->rtdata.addr_width, buff, 4, retry, delay);
     if (ret == 0)
-		*l = get_unaligned_le32(buff);
+        *l = get_unaligned_le32(buff);
 
     return ret;
 }
@@ -1203,16 +1203,16 @@ static int cts_get_dev_boot_mode(const struct cts_device *cts_dev,
     int ret;
 
     if (cts_dev->rtdata.program_mode)
-		ret = cts_hw_reg_readb_retry(cts_dev, CTS_DEV_HW_REG_CURRENT_MODE,
-			boot_mode, 5, 10);
-	else
-		ret = cts_tcs_read_hw_reg(cts_dev, CTS_DEV_HW_REG_CURRENT_MODE,
-			boot_mode, 1);
-	
-	if (ret) {
-		cts_err("Read boot mode failed %d", ret);
-		return ret;
-	}
+        ret = cts_hw_reg_readb_retry(cts_dev, CTS_DEV_HW_REG_CURRENT_MODE,
+                boot_mode, 5, 10);
+    else
+        ret = cts_tcs_read_hw_reg(cts_dev, CTS_DEV_HW_REG_CURRENT_MODE,
+                boot_mode, 1);
+
+    if (ret) {
+        cts_err("Read boot mode failed %d", ret);
+        return ret;
+    }
 
     *boot_mode &= CTS_DEV_BOOT_MODE_MASK;
 
@@ -1438,10 +1438,21 @@ static void cts_handle_proximity_event(bool status)
 int cts_irq_handler(struct cts_device *cts_dev)
 {
     struct cts_device_touch_info *touch_info;
+#ifdef CFG_CTS_GESTURE
     u8 pwrmode = 3;
-    int ret;
+#endif /* CFG_CTS_GESTURE */
+	int ret;
+    ktime_t end_time_avoid;
+    ktime_t delta_time_avoid;
 
     cts_dbg("Enter IRQ handler");
+
+    end_time_avoid = ktime_get();
+    delta_time_avoid = ktime_sub(end_time_avoid, start_time_avoid);
+    if (ktime_to_ms(delta_time_avoid) < INTERVAL_TIME_AVOID){
+        cts_dbg("Abandon processing after %lldms",ktime_to_ms(delta_time_avoid));
+        return 0;
+    }
 
     if (cts_dev->rtdata.program_mode) {
         cts_err("IRQ triggered in program mode");
@@ -1531,6 +1542,12 @@ int cts_irq_handler(struct cts_device *cts_dev)
             return ret;
         }
 #endif
+
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	if(touch_info->num_msg > 0 && touch_info->num_msg <= 2) {
+		cts_read_roi_diffdata();
+	}
+#endif
     }
 
     return 0;
@@ -1582,8 +1599,7 @@ int cts_suspend_device(struct cts_device *cts_dev)
 
 int cts_resume_device(struct cts_device *cts_dev)
 {
-    u8 data[4] = {'R', 'S', 'T', '!'};
-	int ret = 0;
+    int ret = 0;
     int retries = 3;
 #ifdef CFG_CTS_HEADSET_DETECT
 	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
@@ -1594,11 +1610,6 @@ int cts_resume_device(struct cts_device *cts_dev)
     /* Check whether device is in normal mode */
     while (--retries >= 0) {
 #ifdef CFG_CTS_HAS_RESET_PIN
-        ret = cts_tcs_write_hw_reg(cts_dev, CTS_DEV_HW_REG_SET_RESET,
-                data, sizeof(data));
-        if (ret) {
-            cts_err("write RST failed");
-        }
         cts_reset_device(cts_dev);
 #endif
         cts_set_normal_addr(cts_dev);
@@ -1644,11 +1655,6 @@ int cts_resume_device(struct cts_device *cts_dev)
 			cts_err("Set dev charger attached failed %d", r);
 		}
 	}
-	/* if (cts_is_charger_exist(cts_dev)) {
-        int r = cts_set_dev_charger_attached(cts_dev, true);
-        if (r)
-            cts_err("Set dev charger attached failed %d", r);
-    } */
 #endif /* CONFIG_CTS_CHARGER_DETECT */
 
 #ifdef CFG_CTS_HEADSET_DETECT
@@ -1936,29 +1942,6 @@ int cts_start_device(struct cts_device *cts_dev)
     cts_enable_esd_protection(cts_data);
 #endif /* CONFIG_CTS_ESD_PROTECTION */
 
-#ifdef CONFIG_CTS_CHARGER_DETECT
-		if (cts_is_charger_exist(cts_dev)) {
-			int r = cts_charger_plugin(cts_dev);
-	
-			if (r) {
-				cts_err("Set dev charger attached failed %d", r);
-			}
-		}
-		/* cts_start_charger_detect(cts_data); */
-#endif /* CONFIG_CTS_CHARGER_DETECT */
-	
-#ifdef CFG_CTS_HEADSET_DETECT
-		if (cts_data->headset_mode) {
-			cts_earphone_plugin(&cts_data->cts_dev);
-		} else {
-			cts_earphone_plugout(&cts_data->cts_dev);
-		}
-#endif
-
-#ifdef CONFIG_CTS_EARJACK_DETECT
-    cts_start_earjack_detect(cts_data);
-#endif
-
     ret = cts_plat_enable_irq(cts_dev->pdata);
     if (ret < 0) {
         cts_err("Enable IRQ failed %d", ret);
@@ -2003,8 +1986,8 @@ int cts_stop_device(struct cts_device *cts_dev)
 #endif
 
 #ifdef CONFIG_CTS_ESD_PROTECTION
-	cts_disable_esd_protection(cts_data);
-#endif /* CONFIG_CTS_ESD_PROTECTION */
+    cts_disable_esd_protection(cts_data);
+#endif
 
 #ifdef CONFIG_CTS_CHARGER_DETECT
     /* cts_stop_charger_detect(cts_data); */
@@ -2036,7 +2019,7 @@ int cts_stop_device(struct cts_device *cts_dev)
         cts_err("Release all vkey failed %d", ret);
         return ret;
     }
-#endif /* CONFIG_CTS_VIRTUALKEY */
+#endif
 
     return 0;
 }
@@ -2158,8 +2141,8 @@ int cts_get_hwid(struct cts_device *cts_dev, u32 *hwid)
 
     ret = cts_hw_reg_readl_retry(cts_dev, CTS_DEV_HW_REG_HARDWARE_ID,
         hwid, 5, 0);
-	if (ret)
-		goto err_out;
+    if (ret)
+        goto err_out;
 
     *hwid = le32_to_cpu(*hwid);
     *hwid &= 0XFFFFFFF0;
@@ -2335,13 +2318,13 @@ static void cts_esd_protection_work(struct work_struct *work)
     cts_data = container_of(work, struct chipone_ts_data, esd_work.work);
     cts_lock_device(&cts_data->cts_dev);
     if (!cts_plat_is_normal_mode(cts_data->pdata)) {
-		cts_data->esd_check_fail_cnt++;
-		/*reset chip next time */
-		if ((cts_data->esd_check_fail_cnt % 2) == 0) {
-			cts_err("ESD protection read normal mode failed, reset chip!");
-			ret = cts_reset_device(&cts_data->cts_dev);
+        cts_data->esd_check_fail_cnt++;
+        /*reset chip next time */
+        if ((cts_data->esd_check_fail_cnt % 2) == 0) {
+            cts_err("ESD protection read normal mode failed, reset chip!");
+            ret = cts_reset_device(&cts_data->cts_dev);
             if (ret)
-				cts_err("ESD protection reset chip failed %d", ret);
+                cts_err("ESD protection reset chip failed %d", ret);
 #ifdef CONFIG_CTS_CHARGER_DETECT
 		if (cts_is_charger_exist(&cts_data->cts_dev)) {
 			int r = cts_charger_plugin(&cts_data->cts_dev);
@@ -2368,6 +2351,7 @@ static void cts_esd_protection_work(struct work_struct *work)
         const struct cts_firmware *firmware;
 
         cts_warn("ESD protection check failed, update firmware!!!");
+        tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
         cts_stop_device_esdrecover(&cts_data->cts_dev);
         firmware = cts_request_firmware(&cts_data->cts_dev,
             cts_data->cts_dev.hwdata->hwid, cts_data->cts_dev.hwdata->fwid, 0);
@@ -2375,8 +2359,8 @@ static void cts_esd_protection_work(struct work_struct *work)
             ret = cts_update_firmware(&cts_data->cts_dev, firmware, false);
             cts_release_firmware(firmware);
 
-			if (ret)
-				cts_err("Update default firmware failed %d", ret);
+            if (ret)
+                cts_err("Update default firmware failed %d", ret);
         } else
             cts_err("Request default firmware failed %d, "
                 "please update manually!!", ret);
@@ -2624,37 +2608,6 @@ int cts_charger_plugout(struct cts_device *cts_dev)
 	return ret;
 }
 
-/* bool cts_is_charger_exist(struct cts_device *cts_dev)
-{
-    struct chipone_ts_data *cts_data;
-    bool attached = false;
-    int ret;
-
-    cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
-
-    ret = cts_is_charger_attached(cts_data, &attached);
-    if (ret)
-        cts_err("Get charger state failed %d", ret);
-
-    cts_dev->rtdata.charger_exist = attached;
-
-    return attached;
-}
-
-int cts_set_dev_charger_attached(struct cts_device *cts_dev, bool attached)
-{
-    int ret;
-    u8 buf;
-
-    cts_info("Set dev charger %s", attached ? "ATTACHED" : "DETATCHED");
-    buf = attached ? 1 : 0;
-
-    ret = cts_tcs_set_charger_plug(cts_dev, buf);
-    if (ret)
-        cts_err("Set failed %d", ret);
-
-    return ret;
-} */
 #endif  /* CONFIG_CTS_CHARGER_DETECT */
 
 #ifdef CFG_CTS_HEADSET_DETECT
@@ -2676,7 +2629,7 @@ int cts_earphone_plugout(struct cts_device *cts_dev)
 	int ret;
 
 	cts_info("Earphone plugout");
-	cts_dev->rtdata.charger_exist = false;
+
 	/* ret = cts_dev->ops->set_earphone_state(cts_dev,0); */
     ret = cts_tcs_set_earjack_plug(cts_dev, 0);
 	if (ret) {
@@ -2718,7 +2671,6 @@ int cts_set_dev_earjack_attached(struct cts_device *cts_dev, bool attached)
 }
 #endif /* CONFIG_CTS_EARJACK_DETECT */
 
-
 int cts_enable_fw_log_redirect(struct cts_device *cts_dev)
 {
     int ret;
@@ -2727,7 +2679,7 @@ int cts_enable_fw_log_redirect(struct cts_device *cts_dev)
     ret = cts_send_command(cts_dev, CTS_CMD_ENABLE_FW_LOG_REDIRECT);
     if (ret)
         cts_err("Send CTS_CMD_ENABLE_FW_LOG_REDIRECT failed %d", ret);
-	else
+    else
         cts_dev->rtdata.fw_log_redirect_enabled = true;
 
     return 0;
@@ -2739,9 +2691,9 @@ int cts_disable_fw_log_redirect(struct cts_device *cts_dev)
 
     cts_info("Fw log redirect disable");
     ret = cts_send_command(cts_dev, CTS_CMD_DISABLE_FW_LOG_REDIRECT);
-	if (ret)
+    if (ret)
         cts_err("Send CTS_CMD_DISABLE_FW_LOG_REDIRECT failed %d", ret);
-	else
+    else
         cts_dev->rtdata.fw_log_redirect_enabled = false;
 
     return 0;
@@ -2777,14 +2729,19 @@ void cts_firmware_upgrade_work(struct work_struct *work)
     cts_dev = &cts_data->cts_dev;
 
     cts_lock_device(cts_dev);
+    tpd_cdev->fw_ready = false;
     cts_dev->rtdata.update_work_run = true;
     firmware = cts_request_firmware(cts_dev, cts_dev->hwdata->hwid,
             CTS_DEV_FWID_ANY, cts_dev->fwdata.version);
     if (firmware == NULL) {
-        cts_warn("Request firmware failed");
+        cts_warn("don't need update firmware");
         /* With flash, do not update. */
         cts_set_program_addr(cts_dev);
         cts_enter_normal_mode(cts_dev);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+        tpd_cdev->ic_tpinfo.firmware_ver = cts_dev->fwdata.version;
+#endif
+        mod_delayed_work(tpd_cdev->tpd_wq, &tpd_cdev->send_cmd_work, msecs_to_jiffies(20));
         goto end;
     }
 
@@ -2794,16 +2751,26 @@ void cts_firmware_upgrade_work(struct work_struct *work)
         if (ret) {
             cts_err("Update firmware failed times: %d", retries);
             cts_reset_device(cts_dev);
-        } else
+        } else {
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+            ret = cts_tcs_get_fw_ver(cts_dev, &cts_dev->fwdata.version);
+            if (ret) {
+                cts_err("Read firmware version failed %d", ret);
+            }
+            tpd_cdev->ic_tpinfo.firmware_ver = cts_dev->fwdata.version;
+#endif
             break;
+        }
     } while (++retries < 3);
-
+    if (retries >=3) {
+        tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
+    }
     cts_release_firmware(firmware);
 
 end:
     if (ret == 0)
         cts_start_device(cts_dev);
-
+    tpd_cdev->fw_ready = true;
     cts_dev->rtdata.update_work_run = false;
     cts_unlock_device(cts_dev);
 }
@@ -2940,7 +2907,7 @@ void cts_log(int level, const char *fmt, ...)
         }
     }
 
-    if (level < CTS_DRIVER_LOG_DEBUG || cts_show_debug_log) {
+    if (level < CTS_DRIVER_LOG_DEBUG || cts_show_debug_log || tpd_cdev->debug_log_enable) {
         vprintk(fmt, args);
     }
 

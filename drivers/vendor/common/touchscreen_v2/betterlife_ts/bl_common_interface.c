@@ -223,6 +223,67 @@ static int tpd_test_cmd_show(struct ztp_device *cdev, char *buf)
 }
 #endif
 
+static int btl_bbat_test(struct ztp_device *cdev)
+{
+	int ret = 0;
+	unsigned char data = 0x00;
+	unsigned char cmdBbat[2] = { 0x9d, 0x01 };
+	struct btl_ts_data *ts = g_btl_ts;
+
+	BTL_DEBUG_FUNC();
+	cdev->bbat_test_enter = true;
+	cdev->bbat_int_test = false;
+	cdev->bbat_test_result = 0;
+	reinit_completion(&cdev->bbat_test_completion);
+
+	/* tp int test */
+	ret = btl_i2c_write_read(ts->client, CTP_SLAVE_ADDR, cmdBbat, 2, &data, 1);
+	if ((ret < 0) || (data != 1)) {
+		BTL_DEBUG("data is 0x%x", data);
+		BTL_DEBUG("i2c transfer error___\n");
+	}
+
+	if (cdev->bbat_int_test == false) {
+		ret = wait_for_completion_timeout(&cdev->bbat_test_completion, msecs_to_jiffies(700));
+		if (!ret) {
+			BTL_ERROR("tp int test fail");
+			cdev->bbat_test_result = TP_INT_BAAT_TEST_FAIL;
+		}
+	}
+	cmdBbat[1] = 0x00;
+	btl_i2c_write(ts->client, CTP_SLAVE_ADDR, cmdBbat, 2);
+	msleep(10);
+
+	/* tp reset test */
+	gpio_direction_output(ts->reset_gpio_number, 1);
+	msleep(30);
+	cmdBbat[0] = 0x00;
+	cmdBbat[1] = 0x40;
+	ret = btl_i2c_write(ts->client, CTP_SLAVE_ADDR, cmdBbat, 2);
+	if (ret < 0) {
+		BTL_ERROR("tp rst test fail");
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_RST_BAAT_TEST_FAIL;
+	}
+	BTL_DEBUG("set tp reset to low, test i2c write.");
+	gpio_set_value(ts->reset_gpio_number, 0);
+	msleep(30);
+	cmdBbat[1] = 0x00;
+	ret = btl_i2c_write(ts->client, CTP_SLAVE_ADDR, cmdBbat, 2);
+	if (ret >= 0) {
+		BTL_ERROR("tp rst test fail");
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_RST_BAAT_TEST_FAIL;
+	}
+	gpio_set_value(ts->reset_gpio_number, 1);
+	msleep(30);
+	btl_i2c_write_read(ts->client, CTP_SLAVE_ADDR, &cmdBbat[0], 1, &data, 1);
+	if (data == 0) {
+		BTL_DEBUG("tpd reset BBAT test success.");
+	}
+
+	cdev->bbat_test_enter = false;
+	return cdev->bbat_test_result;
+}
+
 void blt_tpd_register_fw_class(void)
 {
 	BTL_DEBUG_FUNC();
@@ -238,6 +299,8 @@ void blt_tpd_register_fw_class(void)
 #endif
 	tpd_cdev->max_x = g_btl_ts->TP_MAX_X;
 	tpd_cdev->max_y = g_btl_ts->TP_MAX_Y;
+	tpd_cdev->input = g_btl_ts->input_dev;
+	tpd_cdev->tp_bbat_test = btl_bbat_test;
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	zlog_tp_dev.device_name = btl_vendor_name;
 	zlog_tp_dev.ic_name = "btl_tp";

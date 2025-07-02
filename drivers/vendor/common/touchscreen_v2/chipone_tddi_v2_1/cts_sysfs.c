@@ -2648,6 +2648,7 @@ static ssize_t cts_edge_restain_store(struct device *dev,
 static DEVICE_ATTR(edge_restain, S_IWUSR | S_IRUGO,
         cts_edge_restain_show, cts_edge_restain_store);
 
+
 static ssize_t cts_game_mode_show(struct device *dev,
         struct device_attribute *attr, char *buf)
 {
@@ -2754,7 +2755,6 @@ static ssize_t cts_proximity_mode_store(struct device *dev,
 static DEVICE_ATTR(proximity_mode,  S_IWUSR | S_IRUGO,
             cts_proximity_mode_show, cts_proximity_mode_store);
 #endif
-
 
 static ssize_t cts_tcs_cmd_show(struct device *dev,
         struct device_attribute *attr, char *buf)
@@ -2922,7 +2922,7 @@ static ssize_t cts_write_tcs_cmd_store(struct device *dev,
     u16 cmd;
     u8 wbuf[32];
     int wlen;
-    int i = 0;
+    int i;
     int ret;
 
     cts_info("Write sysfs '/%s' size %zu", attr->attr.name, count);
@@ -2935,13 +2935,13 @@ static ssize_t cts_write_tcs_cmd_store(struct device *dev,
 
     ret = kstrtou8(argv[0], 0, &class_id);
     if (ret) {
-        cts_err("kstrtou8 class_id %d failed", argv[0]);
+        cts_err("kstrtou8 class_id %d failed", ret);
         return ret;
     }
 
     ret = kstrtou8(argv[1], 0, &cmd_id);
     if (ret) {
-        cts_err("kstrtou8 cmd_id %d failed", argv[1]);
+        cts_err("kstrtou8 cmd_id %d failed", ret);
         return ret;
     }
 
@@ -2976,7 +2976,6 @@ static ssize_t cts_write_tcs_cmd_store(struct device *dev,
     return count;
 }
 static DEVICE_ATTR(write_tcs_cmd, S_IWUSR, NULL, cts_write_tcs_cmd_store);
-
 static struct attribute *cts_dev_misc_atts[] = {
     &dev_attr_ic_type.attr,
     &dev_attr_program_mode.attr,
@@ -3060,16 +3059,16 @@ static ssize_t cts_suspend_store(struct device *dev,
 
     return count;
 }
-static DEVICE_ATTR(ts_suspend,  S_IWUSR | S_IRUGO,
+static DEVICE_ATTR(cts_suspend,  S_IWUSR | S_IRUGO,
             cts_suspend_show, cts_suspend_store);
 
-static struct attribute *cts_dev_ts_suspend_atts[] = {
-    &dev_attr_ts_suspend.attr,
+static struct attribute *cts_dev_cts_suspend_atts[] = {
+    &dev_attr_cts_suspend.attr,
     NULL
 };
 
-static struct attribute_group ts_suspend_attr_group = {
-    .attrs = cts_dev_ts_suspend_atts,
+static struct attribute_group cts_suspend_attr_group = {
+    .attrs = cts_dev_cts_suspend_atts,
 };
 
 
@@ -3259,7 +3258,6 @@ int cts_sysfs_add_device(struct device *dev)
         cts_err("Create touchscreen class failed. ret=%d", ret);
         return ret;
     }
-
     /* Only for sprd platform  */
     cts_data->suspend_kobj = kobject_create_and_add("touchscreen", NULL);
     if (cts_data->suspend_kobj == NULL) {
@@ -3267,7 +3265,7 @@ int cts_sysfs_add_device(struct device *dev)
         return 0;
     }
 
-    ret = sysfs_create_group(cts_data->suspend_kobj, &ts_suspend_attr_group);
+    ret = sysfs_create_group(cts_data->suspend_kobj, &cts_suspend_attr_group);
     if (ret) {
         kobject_put(cts_data->suspend_kobj);
         cts_info("Create ts_suspend failed");
@@ -3292,7 +3290,7 @@ void cts_sysfs_remove_device(struct device *dev)
 
     cts_fw_class_init(cts_data, false);
 
-    sysfs_remove_group(cts_data->suspend_kobj, &ts_suspend_attr_group);
+    sysfs_remove_group(cts_data->suspend_kobj, &cts_suspend_attr_group);
     kobject_put(cts_data->suspend_kobj);
 }
 

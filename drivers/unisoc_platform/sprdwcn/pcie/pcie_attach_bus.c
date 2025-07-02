@@ -136,6 +136,16 @@ static enum wcn_hard_intf_type pcie_get_hwintf_type(void)
 	return HW_TYPE_PCIE;
 }
 
+static void pcie_debug_point_show(void)
+{
+	sprd_pcie_debug_point_show();
+}
+
+static int pcie_runtime_put(void)
+{
+	return sprd_pcie_fw_push_cancel();
+}
+
 static struct sprdwcn_bus_ops pcie_bus_ops = {
 	.preinit = pcie_preinit,
 	.deinit = pcie_preexit,
@@ -156,11 +166,13 @@ static struct sprdwcn_bus_ops pcie_bus_ops = {
 	.get_carddump_status = pcie_get_carddump_status,
 	.set_carddump_status = pcie_set_carddump_status,
 	.get_pm_policy = pcie_get_aspm_policy,
+	.runtime_put = pcie_runtime_put,
 	.set_pm_policy = pcie_set_aspm_policy,
 	.register_rescan_cb = pcie_register_rescan_cb,
 	.rescan = pcie_rescan,
 	.remove_card = pcie_remove_card,
 	.reset = pcie_reset,
+	.debug_point_show = pcie_debug_point_show,
 };
 
 void module_bus_pcie_init(void)

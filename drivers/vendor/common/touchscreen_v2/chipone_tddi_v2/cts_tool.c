@@ -436,7 +436,7 @@ static ssize_t cts_tool_write(struct file *file,
 
     case CTS_TOOL_CMD_DOWNLOAD_FIRMWARE_WITH_FILENAME:
         cts_info("Write firmware path: '%.*s'", cmd->data_len, cmd->data);
-
+        cmd->data_len = cmd->data_len >= PATH_MAX ? PATH_MAX - 1 : cmd->data_len;
         memcpy(cts_tool_firmware_filepath, cmd->data, cmd->data_len);
         cts_tool_firmware_filepath[cmd->data_len] = '\0';
         break;

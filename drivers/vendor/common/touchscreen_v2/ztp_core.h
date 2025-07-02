@@ -10,10 +10,6 @@
 extern int  ilitek_plat_dev_init(void);
 extern void  ilitek_plat_dev_exit(void);
 #endif
-#ifdef CONFIG_TOUCHSCREEN_HIMAX_COMMON
-extern int  himax_common_init(void);
-extern void  himax_common_exit(void);
-#endif
 #ifdef CONFIG_TOUCHSCREEN_LCD_NOTIFY
 extern void lcd_notify_register(void);
 extern void lcd_notify_unregister(void);
@@ -43,6 +39,11 @@ extern void  cts_driver_exit(void);
 #endif
 
 #ifdef CONFIG_TOUCHSCREEN_CHIPONE_V3
+extern int  cts_driver_init(void);
+extern void  cts_driver_exit(void);
+#endif
+
+#ifdef CONFIG_TOUCHSCREEN_CHIPONE_PAD
 extern int  cts_driver_init(void);
 extern void  cts_driver_exit(void);
 #endif
@@ -79,9 +80,14 @@ extern int  sitronix_ts_init(void);
 extern void  sitronix_ts_exit(void);
 #endif
 
-#ifdef CONFIG_TOUCHSCREEN_HIMAX_CHIPSET_V3_3
+#ifdef CONFIG_TOUCHSCREEN_HIMAX_COMMON
 int himax_common_init(void);
 void himax_common_exit(void);
+#endif
+
+#ifdef CONFIG_TOUCHSCREEN_AXS
+int axs_ts_init(void);
+void axs_ts_exit(void);
 #endif
 
 #ifdef CONFIG_TOUCHSCREEN_UFP_MAC

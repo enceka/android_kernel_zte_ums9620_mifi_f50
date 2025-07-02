@@ -15,11 +15,47 @@
 
 #include "internal.h"
 
+#ifdef ZTE_LEDS_FOR_U30
+#define BOOT_MODE_MAX_LEN 20
+static char regulator_boot_mode[BOOT_MODE_MAX_LEN] = "NONE";
+#endif
+
 static const char *const regulator_states[PM_SUSPEND_MAX + 1] = {
 	[PM_SUSPEND_STANDBY]	= "regulator-state-standby",
 	[PM_SUSPEND_MEM]	= "regulator-state-mem",
 	[PM_SUSPEND_MAX]	= "regulator-state-disk",
 };
+
+#ifdef ZTE_LEDS_FOR_U30
+static int rpc_get_bootmode(void)
+{
+	struct device_node *np = NULL;
+	const char *cmd_line = NULL, *s = NULL;
+	int ret = 0;
+
+	np = of_find_node_by_path("/chosen");
+	if (!np) {
+		pr_err("%s: find chosen failed\n", __func__);
+		return 0;
+	}
+
+	ret = of_property_read_string(np, "bootargs", &cmd_line);
+	if (ret < 0) {
+		pr_err("%s: read bootargs failed\n", __func__);
+		return 0;
+	}
+
+	s = strstr(cmd_line, "androidboot.mode=");
+	if (!s) {
+		pr_err("%s: find androidboot.mode failed\n", __func__);
+		return 0;
+	}
+
+	sscanf(s, "androidboot.mode=%s", regulator_boot_mode);
+	pr_info("%s: androidboot.mode is %s\n", __func__, regulator_boot_mode);
+	return 0;
+}
+#endif
 
 static int of_get_regulation_constraints(struct device *dev,
 					struct device_node *np,
@@ -70,6 +106,15 @@ static int of_get_regulation_constraints(struct device *dev,
 		constraints->valid_ops_mask |= REGULATOR_CHANGE_CURRENT;
 
 	constraints->boot_on = of_property_read_bool(np, "regulator-boot-on");
+
+#ifdef ZTE_LEDS_FOR_U30
+	rpc_get_bootmode();
+	if (strcmp(regulator_boot_mode, "charger") == 0) {
+		if (!strcmp(constraints->name, "vddcama0") || !strcmp(constraints->name, "vddcama1"))
+			constraints->boot_on = false;
+	}
+#endif
+
 	constraints->always_on = of_property_read_bool(np, "regulator-always-on");
 	if (!constraints->always_on) /* status change should be possible. */
 		constraints->valid_ops_mask |= REGULATOR_CHANGE_STATUS;
@@ -206,8 +251,12 @@ static int of_get_regulation_constraints(struct device *dev,
 		}
 
 		suspend_np = of_get_child_by_name(np, regulator_states[i]);
-		if (!suspend_np || !suspend_state)
+		if (!suspend_np)
 			continue;
+		if (!suspend_state) {
+			of_node_put(suspend_np);
+			continue;
+		}
 
 		if (!of_property_read_u32(suspend_np, "regulator-mode",
 					  &pval)) {

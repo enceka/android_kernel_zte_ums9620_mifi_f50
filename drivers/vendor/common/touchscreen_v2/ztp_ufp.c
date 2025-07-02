@@ -6,7 +6,6 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/pm_wakeup.h>
-struct wakeup_source tp_wakeup;
 #include "ztp_common.h"
 
 #define SINGLE_TAP_DELAY	600
@@ -15,6 +14,8 @@ struct wakeup_source tp_wakeup;
 #define MAX_POINTS_SUPPORT 10
 #define FP_GESTURE_DOWN	"fp_gesture_down=true"
 #define FP_GESTURE_UP	"fp_gesture_up=true"
+
+extern struct wakeup_source *tp_wakeup;
 
 static char *one_key_finger_id[] = {
 	"finger_id=0",
@@ -48,14 +49,20 @@ int ufp_get_lcdstate(void)
 void ufp_report_gesture_uevent(char *str)
 {
 	char *envp[2];
+	struct ztp_device *cdev = tpd_cdev;
 
 	envp[0] = str;
 	envp[1] = NULL;
 	kobject_uevent_env(&(ufp_tp_ops.uevent_pdev->dev.kobj), KOBJ_CHANGE, envp);
 
-	__pm_wakeup_event(&tp_wakeup, 2000);
+	__pm_wakeup_event(tp_wakeup, 2000);
 	UFP_INFO("tp_wakeup success");
 	UFP_INFO("%s", str);
+	if (strcmp(str, SINGLE_TAP_GESTURE) == 0) {
+		cdev->ztp_time.tp_single_tap_time = jiffies;
+	} else if (strcmp(str, DOUBLE_TAP_GESTURE) == 0) {
+		cdev->ztp_time.tp_double_tap_time = jiffies;
+	}
 }
 
 static inline void __report_ufp_uevent(char *str)
@@ -213,8 +220,6 @@ EXPORT_SYMBOL(ufp_notifier_cb);
 
 int ufp_mac_init(void)
 {
-
-	wakeup_source_add(&tp_wakeup);
 	if (tpd_cdev->zte_touch_pdev)
 		ufp_tp_ops.uevent_pdev = tpd_cdev->zte_touch_pdev;
 	init_completion(&ufp_tp_ops.ufp_completion);
@@ -225,8 +230,6 @@ int ufp_mac_init(void)
 
 void  ufp_mac_exit(void)
 {
-
-	wakeup_source_remove(&tp_wakeup);
 	ufp_tp_ops.uevent_pdev = NULL;
 }
 

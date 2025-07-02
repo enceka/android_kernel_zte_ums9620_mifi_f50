@@ -398,9 +398,10 @@ static int sipa_resume_work(struct device *dev)
 
 	sipa_sender_prepare_resume(ipa->sender);
 
-	wake_up_process(ipa->set_rps_thread);
-	hrtimer_start(&ipa->daemon_timer, ms_to_ktime(0),
-		      HRTIMER_MODE_REL);
+	// zsw changed, make /sys/class/net/sipa_eth0/queues/rx-0/rps_cpus do not change.
+	// wake_up_process(ipa->set_rps_thread);
+	// hrtimer_start(&ipa->daemon_timer, ms_to_ktime(0),
+		     // HRTIMER_MODE_REL);
 	pr_info("sipa resume hrtimer start\n");
 
 	sipa_rm_notify_completion(SIPA_RM_EVT_GRANTED,
@@ -587,8 +588,9 @@ static int sipa_prepare_suspend(struct device *dev)
 		return -EAGAIN;
 
 	if (!(ipa->suspend_stage & SIPA_EB_SUSPEND)) {
-		hrtimer_cancel(&ipa->daemon_timer);
-		sipa_single_little_core(SIPA_USER_RECOVERY);
+		// zsw changed, make /sys/class/net/sipa_eth0/queues/rx-0/rps_cpus do not change.
+		// hrtimer_cancel(&ipa->daemon_timer);
+		// sipa_single_little_core(SIPA_USER_RECOVERY);
 		sipa_set_enabled(false);
 		ipa->suspend_stage |= SIPA_EB_SUSPEND;
 		dev_info(dev, "sipa ready to suspend and change to single\n");

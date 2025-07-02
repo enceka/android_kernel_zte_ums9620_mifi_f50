@@ -89,11 +89,7 @@ int goodix_parse_cfg_bin(struct goodix_cfg_bin *cfg_bin)
 	if (checksum != cfg_bin->head.checksum) {
 		ts_err("cfg_bin checksum check filed 0x%02x != 0x%02x",
 		       cfg_bin->head.checksum, checksum);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("cfg_bin checksum check filed 0x%02x != 0x%02x",
-		       cfg_bin->head.checksum, checksum);
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		return -EINVAL;
 	}
 

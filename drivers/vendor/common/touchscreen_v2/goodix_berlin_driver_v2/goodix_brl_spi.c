@@ -55,10 +55,7 @@ static int goodix_spi_read_bra(struct device *dev, unsigned int addr,
 	if (!rx_buf) {
 		ts_err("alloc rx_buf failed, size:%d",
 			SPI_READ_PREFIX_LEN + len);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("alloc rx_buf failed");
 		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
-#endif
 		return -ENOMEM;
 	}
 
@@ -66,10 +63,7 @@ static int goodix_spi_read_bra(struct device *dev, unsigned int addr,
 	if (!tx_buf) {
 		ts_err("alloc tx_buf failed, size:%d",
 			SPI_READ_PREFIX_LEN + len);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("alloc tx_buf failed");
 		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
-#endif
 		kfree(rx_buf);
 		return -ENOMEM;
 	}
@@ -96,9 +90,7 @@ static int goodix_spi_read_bra(struct device *dev, unsigned int addr,
 	ret = spi_sync(spi, &spi_msg);
 	if (ret < 0) {
 		ts_err("spi transfer error:%d", ret);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
-#endif
 		goto exit;
 	}
 	memcpy(data, &rx_buf[SPI_READ_PREFIX_LEN], len);
@@ -123,20 +115,14 @@ static int goodix_spi_read(struct device *dev, unsigned int addr,
 	if (!rx_buf) {
 		ts_err("alloc rx_buf failed, size:%d",
 			SPI_READ_PREFIX_LEN - 1 + len);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("alloc rx_buf failed");
 		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
-#endif
 		return -ENOMEM;
 	}
 	tx_buf = kzalloc(SPI_READ_PREFIX_LEN - 1 + len, GFP_KERNEL);
 	if (!tx_buf) {
 		ts_err("alloc tx_buf failed, size:%d",
 			SPI_READ_PREFIX_LEN - 1 + len);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("alloc tx_buf failed");
 		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
-#endif
 		kfree(rx_buf);
 		return -ENOMEM;
 	}
@@ -162,9 +148,7 @@ static int goodix_spi_read(struct device *dev, unsigned int addr,
 	ret = spi_sync(spi, &spi_msg);
 	if (ret < 0) {
 		ts_err("spi transfer error:%d", ret);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
-#endif
 		goto exit;
 	}
 	memcpy(data, &rx_buf[SPI_READ_PREFIX_LEN - 1], len);
@@ -196,10 +180,7 @@ static int goodix_spi_write(struct device *dev, unsigned int addr,
 	if (!tx_buf) {
 		ts_err("alloc tx_buf failed, size:%d",
 			SPI_WRITE_PREFIX_LEN + len);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("alloc tx_buf failed");
 		tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
-#endif
 		return -ENOMEM;
 	}
 
@@ -218,9 +199,7 @@ static int goodix_spi_write(struct device *dev, unsigned int addr,
 	spi_message_add_tail(&xfers, &spi_msg);
 	ret = spi_sync(spi, &spi_msg);
 	if (ret < 0) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
-#endif
 		ts_err("spi transfer error:%d", ret);
 	}
 	kfree(tx_buf);

@@ -392,6 +392,13 @@ int fts_gesture_suspend(struct fts_ts_data *ts_data)
 
     FTS_FUNC_ENTER();
 	fts_tp_irq_wake(ts_data, true);
+#if FTS_THREE_IN_ONE
+    ret = fts_enter_gesture_fw();
+    if (ret < 0) {
+        FTS_ERROR("download gesture firmware fail");
+        return ret;
+    }
+#endif
 
     for (i = 0; i < 5; i++) {
         fts_write_reg(0xD1, 0xFF);

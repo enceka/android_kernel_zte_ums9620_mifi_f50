@@ -41,6 +41,7 @@
 * Global variable or extern global variabls/functions
 *****************************************************************************/
 u8 pb_file_ft5662[] = {
+#include "../include/pramboot/FT5662_Pramboot_V1.3_20211109.i"
 };
 
 /*****************************************************************************
@@ -441,4 +442,7 @@ struct upgrade_func upgrade_func_ft5662 = {
     .write_pramboot_private = fts_ft5662_write_pramboot_private,
     .hid_supported = false,
     .upgrade = fts_ft5662_upgrade,
+#ifdef FTS_UPGRADE_CHECK_CHIP_ID
+    .chip_name = "ft3681",
+#endif
 };

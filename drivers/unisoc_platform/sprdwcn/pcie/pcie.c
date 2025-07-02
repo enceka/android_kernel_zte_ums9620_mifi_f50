@@ -46,7 +46,7 @@
 
 #define N	16
 
-static int (*scan_card_notify)(void);
+static void (*scan_card_notify)(void);
 static struct wcn_pcie_info *g_pcie_dev;
 
 void wcn_dump_ep_mems(struct wcn_pcie_info *priv)
@@ -781,13 +781,19 @@ int sprd_pcie_scan_card(void *wcn_dev)
 	sprd_pcie_configure_device(pdev);
 
 	if (wait_for_completion_timeout(&priv->scan_done,
-	    msecs_to_jiffies(5000)) == 0) {
-		WCN_ERR("wait scan card time out\n");
-		return -ENODEV;
-	}
+		msecs_to_jiffies(5000)) == 0)
+		goto pcie_rescan_timeout;
+
 	WCN_INFO("scan end\n");
 
 	return 0;
+
+pcie_rescan_timeout:
+	WCN_ERR("Waiting for PCIe scan card timeout\n");
+	sprd_pcie_unconfigure_device(pdev);
+	priv->rc_pd = NULL;
+
+	return -ENODEV;
 }
 
 void sprd_pcie_register_scan_notify(void *func)
@@ -897,7 +903,20 @@ void sprd_pcie_remove_card(void *wcn_dev)
 		WCN_INFO("remove card end\n");
 }
 
-extern void marlin_scan_finish(void);
+void sprd_pcie_debug_point_show(void)
+{
+	edma_debug_info_show();
+}
+
+int sprd_pcie_fw_push_cancel(void)
+{
+	int ret = 0;
+
+	ret = wcn_firmware_ready_close(BIT(0));
+	usleep_range(5000, 10000);
+
+	return ret;
+}
 
 static int sprd_pcie_probe(struct pci_dev *pdev,
 			   const struct pci_device_id *pci_id)
@@ -1070,23 +1089,27 @@ static int sprd_pcie_probe(struct pci_dev *pdev,
 	/* for log_dev_init */
 	mdbg_pt_ring_reg();
 	sprd_pcie_set_aspm_policy(AUTO, BUS_PM_ALL_ENABLE);
-	pci_read_config_dword(pdev, 0x0728, &val32);
+	pci_read_config_dword(pdev, PCI_DEBUG0_OFFSET, &val32);
 	WCN_INFO("EP link status 728=0x%x\n", val32);
-	pci_read_config_dword(pdev, 0x072c, &val32);
+	pci_read_config_dword(pdev, PCI_DEBUG1_OFFSET, &val32);
 	WCN_INFO("EP link status 72c=0x%x\n", val32);
-	/* calling rescan callback to inform download */
-	//if (scan_card_notify != NULL)
-	//	scan_card_notify();
+
 	if (priv->msi_en == 1) {
-		pci_read_config_dword(pdev->bus->self, 0x0828, &val32);
-		if (priv->irq_num == 32 && val32 != 0xffffffff) {
-			WCN_WARN("irq int_en status 828=0x%x\n", val32);
-			pci_write_config_dword(pdev->bus->self, 0x0828, MSI_IRQ_INT_EN_ALL);
+		pci_read_config_dword(pdev->bus->self, PCI_MSI_CTRL_INT_EN_OFFSET, &val32);
+		if (priv->irq_num == 32 && val32 != MSI_IRQ_INT_EN_ALL) {
+			WARN(true, "Force all MSI interrupts to be enabled");
+			pci_write_config_dword(pdev->bus->self,
+				PCI_MSI_CTRL_INT_EN_OFFSET, MSI_IRQ_INT_EN_ALL);
+			pci_read_config_dword(pdev->bus->self, PCI_MSI_CTRL_INT_EN_OFFSET, &val32);
 		}
-		WCN_INFO("irq int_en status 828=0x%x\n", val32);
+		WCN_INFO("MSI interrupts enable status 0x%x\n", val32);
 	}
-	marlin_scan_finish();
+
 	WCN_INFO("%s ok\n", __func__);
+
+	if (scan_card_notify != NULL)
+		scan_card_notify();
+
 	return 0;
 
 err_out:
@@ -1124,6 +1147,7 @@ static void sprd_pcie_remove(struct pci_dev *pdev)
 	WCN_INFO("%s end\n", __func__);
 }
 
+extern int wcn_set_armlog(bool enable);
 static int sprd_ep_suspend(struct device *dev)
 {
 	int ret;
@@ -1135,6 +1159,7 @@ static int sprd_ep_suspend(struct device *dev)
 	wcn_bus_change_state(priv, WCN_BUS_DOWN);
 	atomic_set(&priv->is_suspending, 1);
 
+	mdbg_device_lock_notify();
 	for (chn = 0; chn < 16; chn++) {
 		ops = mchn_ops(chn);
 		if ((ops != NULL) && (ops->power_notify != NULL)) {
@@ -1144,15 +1169,21 @@ static int sprd_ep_suspend(struct device *dev)
 					 __func__, chn);
 				atomic_set(&priv->is_suspending, 0);
 				wcn_bus_change_state(priv, WCN_BUS_UP);
+				mdbg_device_unlock_notify();
 				return ret;
 			}
 		}
 	}
+	mdbg_device_unlock_notify();
 
-	if (edma_hw_pause() < 0) {
-		atomic_set(&priv->is_suspending, 0);
-		return -1;
-	}
+	if (edma_hw_pause() < 0)
+		goto power_notify_resume;
+
+	/* delay 2ms for trans chn data finish */
+	mdelay(2);
+	
+	if(edma_pending_irq_check())
+		goto suspend_failed;
 
 	WCN_INFO("%s[+]\n", __func__);
 
@@ -1169,6 +1200,24 @@ static int sprd_ep_suspend(struct device *dev)
 	WCN_INFO("%s[-]\n", __func__);
 
 	return 0;
+suspend_failed:
+	edma_hw_restore();
+
+power_notify_resume:
+	mdbg_device_lock_notify();
+	for (chn = chn - 1; chn >= 0; chn--) {
+		ops = mchn_ops(chn);
+		if ((ops != NULL) && (ops->power_notify != NULL)) {
+			ret = ops->power_notify(chn, 1);
+			if (ret != 0)
+				WCN_ERR("[%s] chn:%d resume fail\n", __func__, chn);
+		}
+	}
+	mdbg_device_unlock_notify();
+
+	atomic_set(&priv->is_suspending, 0);
+	wcn_bus_change_state(priv, WCN_BUS_UP);
+	return -1;
 }
 
 static int sprd_ep_resume(struct device *dev)
@@ -1183,14 +1232,14 @@ static int sprd_ep_resume(struct device *dev)
 	if (!pdev)
 		return 0;
 
-	pci_load_and_free_saved_state(to_pci_dev(dev), &priv->saved_state);
-	pci_restore_state(to_pci_dev(dev));
-	pci_write_config_dword(to_pci_dev(dev), 0x60, 0);
-
 	ret = pci_set_power_state(pdev, PCI_D0);
 	WCN_INFO("pci_set_power_state(PCI_D0) ret %d\n", ret);
 	ret = pci_enable_wake(pdev, PCI_D0, 0);
 	WCN_INFO("pci_enable_wake(PCI_D0) ret %d\n", ret);
+
+	pci_load_and_free_saved_state(to_pci_dev(dev), &priv->saved_state);
+	pci_restore_state(to_pci_dev(dev));
+	pci_write_config_dword(to_pci_dev(dev), 0x60, 0);
 
 	ret = sprd_ep_addr_map(priv);
 	if (ret)
@@ -1200,6 +1249,8 @@ static int sprd_ep_resume(struct device *dev)
 
 	wcn_bus_change_state(priv, WCN_BUS_UP);
 	atomic_set(&priv->is_suspending, 0);
+	wcn_set_armlog(true);
+	mdbg_device_lock_notify();
 	for (chn = 0; chn < 16; chn++) {
 		ops = mchn_ops(chn);
 		if ((ops != NULL) && (ops->power_notify != NULL)) {
@@ -1208,10 +1259,12 @@ static int sprd_ep_resume(struct device *dev)
 				WCN_INFO("[%s] chn:%d resume fail\n",
 					 __func__, chn);
 				wcn_bus_change_state(priv, WCN_BUS_DOWN);
+				mdbg_device_unlock_notify();
 				return ret;
 			}
 		}
 	}
+	mdbg_device_unlock_notify();
 	WCN_INFO("%s[-]\n", __func__);
 	return 0;
 }

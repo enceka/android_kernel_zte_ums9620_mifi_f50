@@ -291,7 +291,7 @@ static int cm_capacity_remap(struct charger_manager *cm, int fuel_cap)
 
 		if (i == cm->desc->cap_remap_table_len - 1 && temp > cm->desc->cap_remap_table[i].hb)
 			cap = DIV_ROUND_CLOSEST((temp - cm->desc->cap_remap_table[i].hb), 100)
-				+ cm->desc->cap_remap_table[i].hcap;
+				+ cm->desc->cap_remap_table[i].hcap * 10;
 
 	}
 
@@ -1150,6 +1150,13 @@ static bool is_full_charged(struct charger_manager *cm)
 	if (!fuel_gauge)
 		return false;
 
+	/* Set force_set_full and is_full_charged as false when in long time charging policy */
+	if (charger_policy_get_status() == true) {
+		dev_info(cm->dev, "%s:charger_policy_get_status true\n", __func__);
+		cm->desc->force_set_full = false;
+		return false;
+	}
+
 	if (desc->fullbatt_full_capacity > 0) {
 		val.intval = 0;
 
@@ -1164,6 +1171,12 @@ static bool is_full_charged(struct charger_manager *cm)
 
 #ifdef CONFIG_VENDOR_SQC_CHARGER
 	sqc_get_property(POWER_SUPPLY_PROP_STATUS, &val);
+#ifdef ZTE_FEATURE_PV_AR
+	if (sqc_get_property(POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX, NULL) == 0) {
+		val.intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+		cm->desc->force_set_full = false;
+	}
+#endif
 	if (val.intval == POWER_SUPPLY_STATUS_FULL) {
 		if (cm->health == POWER_SUPPLY_HEALTH_WARM) {
 			dev_info(cm->dev, "charger ic report warm full! health: %d\n", cm->health);
@@ -1176,7 +1189,7 @@ static bool is_full_charged(struct charger_manager *cm)
 			if (uV >= desc->fullbatt_uV)
 				adjust_fuel_cap(cm, CM_FORCE_SET_FUEL_CAP_FULL);
 
-			dev_info(cm->dev, "charger ic reprot normal full! health: %d\n", cm->health);
+			dev_info(cm->dev, "charger ic report normal full! health: %d\n", cm->health);
 			is_full = true;
 			cm->desc->force_set_full = true;
 		}
@@ -1611,6 +1624,11 @@ static int cm_get_battery_technology(struct charger_manager *cm, union power_sup
 static void cm_get_uisoc(struct charger_manager *cm, int *uisoc)
 {
 	int cap_new, batt_uV = 0;
+
+#ifdef ZTE_CHARGER_NO_BATTERY
+	*uisoc = 50;
+	return;
+#endif
 
 	if (!is_batt_present(cm)) {
 		/* There is no battery. Assume 100% */
@@ -2197,6 +2215,11 @@ static int charger_get_property(struct power_supply *psy,
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
 		val->intval = cm->batt_chg_status;
+#ifdef ZTE_FEATURE_PV_AR
+		if (sqc_get_property(POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX, NULL) == 0) {
+			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+		}
+#endif
 		break;
 
 	case POWER_SUPPLY_PROP_HEALTH:
@@ -2548,8 +2571,12 @@ zte_charger_set_property(struct zte_power_supply *psy,
 	struct charger_manager *cm = zte_power_supply_get_drvdata(psy);
 	int ret = 0;
 
-	if (psp != POWER_SUPPLY_PROP_SET_SHIP_MODE && !is_ext_pwr_online(cm))
-		return -ENODEV;
+	if (psp != POWER_SUPPLY_PROP_SET_SHIP_MODE && !is_ext_pwr_online(cm)
+		&& (psp != POWER_SUPPLY_PROP_BATTERY_CHARGING_ENABLED)) {
+			vote_error("error prop=%d\n", psp);
+			return -ENODEV;
+		}
+
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_SET_SHIP_MODE:
@@ -3274,24 +3301,28 @@ static int cm_get_bat_info(struct charger_manager *cm)
 
 static void cm_shutdown_handle(struct charger_manager *cm)
 {
-	switch (cm->desc->uvlo_shutdown_mode) {
-	case CM_SHUTDOWN_MODE_ORDERLY:
-		orderly_poweroff(true);
-		break;
-
-	case CM_SHUTDOWN_MODE_KERNEL:
+	if (is_charger_mode) {
 		kernel_power_off();
-		break;
+	} else {
+		switch (cm->desc->uvlo_shutdown_mode) {
+		case CM_SHUTDOWN_MODE_ORDERLY:
+			orderly_poweroff(true);
+			break;
 
-	case CM_SHUTDOWN_MODE_ANDROID:
-		cancel_delayed_work_sync(&cm->cap_update_work);
-		cm->desc->cap = 0;
-		power_supply_changed(cm->charger_psy);
-		break;
+		case CM_SHUTDOWN_MODE_KERNEL:
+			kernel_power_off();
+			break;
 
-	default:
-		dev_warn(cm->dev, "Incorrect uvlo_shutdown_mode (%d)\n",
-			 cm->desc->uvlo_shutdown_mode);
+		case CM_SHUTDOWN_MODE_ANDROID:
+			cancel_delayed_work_sync(&cm->cap_update_work);
+			cm->desc->cap = 0;
+			power_supply_changed(cm->charger_psy);
+			break;
+
+		default:
+			dev_warn(cm->dev, "Incorrect uvlo_shutdown_mode (%d)\n",
+				 cm->desc->uvlo_shutdown_mode);
+		}
 	}
 }
 
@@ -3898,8 +3929,6 @@ int cap_debug_get(char *val, const void *arg)
 	pr_info("%s: get cap_debug: %d\n", __func__, cm->desc->cap_debug);
 
 	return snprintf(val, PAGE_SIZE, "%d", cm->desc->cap_debug);
-
-	return 0;
 }
 
 struct zte_misc_ops cap_debug_node = {
@@ -3977,7 +4006,7 @@ static int charger_manager_probe(struct platform_device *pdev)
 	struct power_supply *psy_hardware_chg = NULL;
 	const char *psy_hardware_name;
 
-	pr_info("%s enter\n", __func__);
+	pr_info("%s sqc comm enter\n", __func__);
 	ret = of_property_read_string(np, "cm-hardware-psy", &psy_hardware_name);
 	if (ret) {
 		pr_info("No cm-hardware-psy config, ret=%d\n", ret);
@@ -4003,6 +4032,9 @@ static int charger_manager_probe(struct platform_device *pdev)
 	cm->dev = &pdev->dev;
 	cm->desc = desc;
 	psy_cfg.drv_data = cm;
+	cm->desc->thermal_control_en = true;
+	cm->health = POWER_SUPPLY_HEALTH_GOOD;
+	cm->battery_id = 0;
 	cm->desc->cap_debug = -1;
 
 	/* Initialize alarm timer */

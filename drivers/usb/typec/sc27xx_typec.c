@@ -110,6 +110,24 @@
 #define SC2721_STATE_MASK		GENMASK(3, 0)
 #define SC2721_EVENT_MASK		GENMASK(6, 0)
 
+ /* SC27XX_TYPEC_EN */
+#define SC27XX_TYPEC_TOGGLE_SLEEP      BIT(1)
+
+ 
+#define SC2721_TRY_SRC_ROLE                    BIT(2)
+#define SC2721_TRY_SNK_ROLE                    BIT(3)
+
+/* SC27XX_TYPEC TRY ROLE */
+#define SC27XX_TRY_SRC_ROLE            BIT(7)
+#define SC27XX_TRY_SNK_ROLE            BIT(8)
+#define SC27XX_TRY_CONUT_MASK          GENMASK(11, 8)
+#define SC27XX_TRY_CONUT(x)            (((x) << 8) & GENMASK(11, 8))
+
+#define SC27XX_DRPTRY_CNT                      0x34
+#define SC27XX_DRPTRY_MIN_VALUE                0x95f
+#define SC27XX_DRPTRY_DEFAULT_VALUE            0xe0f
+
+
 /* modify sc2730 tcc debunce */
 #define SC27XX_TCC_DEBOUNCE_CNT		0xc7f
 /* modify sc27xx tdrp */
@@ -252,6 +270,7 @@ struct sc27xx_typec {
 	u32 base;
 	int irq;
 	int mode;
+	int prefer_role;
 	struct extcon_dev *edev;
 	struct gpio_desc *gpiod;
 	bool usb20_only;
@@ -499,6 +518,72 @@ static int sc27xx_connect_set_status_no_pdhubc2c(struct sc27xx_typec *sc, u32 st
 	return 0;
 }
 
+#ifdef ZTE_FEATURE_ALWAYS_DEVICE_WITH_DUAL_TYPEC
+static int sc27xx_typec_try_mode(struct sc27xx_typec *sc)
+{
+	int ret;
+	u32 val, try_count_value, drp_try_cnt;
+
+	if (sc->var_data->pmic_name == SC2721) {
+
+		ret = regmap_read(sc->regmap, sc->base + sc->var_data->mode, &val);
+		if (ret)
+			return ret;
+
+		val &= ~(SC2721_TRY_SRC_ROLE|SC2721_TRY_SNK_ROLE);
+		switch (sc->prefer_role) {
+		case TYPEC_SINK:
+		val |= SC2721_TRY_SNK_ROLE;
+			break;
+		case TYPEC_SOURCE:
+			val |= SC2721_TRY_SRC_ROLE;
+			break;
+		case TYPEC_NO_PREFERRED_ROLE:
+		default:
+			break;
+		}
+		ret = regmap_write(sc->regmap, sc->base + sc->var_data->mode, val);
+		if (ret)
+			return ret;
+	} else {
+		ret = regmap_read(sc->regmap, sc->base + SC27XX_EN, &val);
+		if (ret)
+			return ret;
+
+		val &= ~(SC27XX_TRY_SRC_ROLE|SC27XX_TRY_SNK_ROLE);
+		try_count_value = 0;
+		drp_try_cnt = SC27XX_DRPTRY_DEFAULT_VALUE;
+		switch (sc->prefer_role) {
+		case TYPEC_SINK:
+			val |= SC27XX_TRY_SNK_ROLE;
+			drp_try_cnt = SC27XX_DRPTRY_MIN_VALUE;
+			try_count_value = 1;
+			break;
+		case TYPEC_SOURCE:
+			val |= SC27XX_TRY_SRC_ROLE;
+			drp_try_cnt = SC27XX_DRPTRY_MIN_VALUE;
+			try_count_value = 1;
+			break;
+		case TYPEC_NO_PREFERRED_ROLE:
+		default:
+			break;
+		}
+
+		pr_info("val 0x%x 0x%x 0x%x\n", val, drp_try_cnt, try_count_value);
+		ret = regmap_write(sc->regmap, sc->base + SC27XX_EN, val);
+		if (ret)
+			return ret;
+
+		ret = regmap_update_bits(sc->regmap, sc->base + sc->var_data->mode,
+                               SC27XX_TRY_CONUT_MASK,
+                               SC27XX_TRY_CONUT(try_count_value));
+		if (ret)
+			return ret;
+	}
+
+	return ret;
+}
+#endif
 static int sc27xx_typec_connect(struct sc27xx_typec *sc, u32 status)
 {
 	int ret;
@@ -514,7 +599,10 @@ static int sc27xx_typec_connect(struct sc27xx_typec *sc, u32 status)
 static void sc27xx_disconnect_set_status_use_pdhubc2c(struct sc27xx_typec *sc)
 {
 	u8 pr_mode, dr_mode;
-
+#ifdef ZTE_FEATURE_ALWAYS_DEVICE_WITH_DUAL_TYPEC
+	/*try sink*/
+	sc27xx_typec_try_mode(sc);
+#endif
 	spin_lock(&sc->lock);
 	sc->partner_connected = false;
 	sc->pd_swap_evt = TYPEC_NO_SWAP;
@@ -748,7 +836,11 @@ static int sc27xx_typec_enable(struct sc27xx_typec *sc)
 				return ret;
 		}
 	}
-
+#ifdef ZTE_FEATURE_ALWAYS_DEVICE_WITH_DUAL_TYPEC
+	ret = sc27xx_typec_try_mode(sc);
+	if (ret)
+		return ret;
+#endif
 	/* modify sc2730/9620 tcc debounce to 100ms while PD signal occur at 150ms
 	 * and effect tccde reginize.Reason is hardware signal and clk not
 	 * accurate.
@@ -1154,6 +1246,9 @@ static int sc27xx_typec_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct device_node *node = pdev->dev.of_node;
 	struct sc27xx_typec *sc;
+#ifdef ZTE_FEATURE_ALWAYS_DEVICE_WITH_DUAL_TYPEC
+	const char *typec_str;
+#endif
 	const struct sprd_typec_variant_data *pdata;
 	int mode, ret;
 
@@ -1215,6 +1310,20 @@ static int sc27xx_typec_probe(struct platform_device *pdev)
 
 	sc->var_data = pdata;
 	sc->mode = mode;
+#ifdef ZTE_FEATURE_ALWAYS_DEVICE_WITH_DUAL_TYPEC
+	sc->prefer_role = TYPEC_NO_PREFERRED_ROLE;
+	if (sc->mode == TYPEC_PORT_DRP) {
+		ret = of_property_read_string(node, "try-power-role", &typec_str);
+		if (ret == 0) {
+			ret = typec_find_power_role(typec_str);
+			if (ret < 0) {
+				dev_err(dev, "try-power-role null\n");
+				return ret;
+			}
+			sc->prefer_role = ret;
+		}
+	}
+#endif
 	if (!sc->use_pdhub_c2c) {
 		sc->typec_cap.type = mode;
 		sc->typec_cap.data = TYPEC_PORT_DRD;

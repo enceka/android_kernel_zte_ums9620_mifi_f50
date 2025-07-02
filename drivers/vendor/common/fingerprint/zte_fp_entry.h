@@ -7,6 +7,23 @@
 #ifndef __ZTE_FP_ENTRY__H__
 #define __ZTE_FP_ENTRY__H__
 
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/platform_device.h>
+#include <linux/kernel.h>
+#include <linux/of.h>
+#include <linux/fs.h>
+#include <linux/cdev.h>
+#include <linux/of_platform.h>
+#include <linux/proc_fs.h>
+#include <linux/slab.h>
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+#include <linux/delay.h>
+#include <linux/pinctrl/consumer.h>
+
+#define ZLOG_MOD_NAME	"[ZTE_LDD_FP]"
+#define ZLOG_VENDOR_NAME	"[ENTRY]"
 typedef enum {
     ERR_LOG = 0,
     WARN_LOG,
@@ -15,11 +32,11 @@ typedef enum {
     ALL_LOG,
 } zte_fp_log_level_t;
 
-static zte_fp_log_level_t zte_fp_log_level = INFO_LOG;
+extern int zte_fp_log_level;
 
 #define zte_fp_log(level, fmt, args...) do { \
 			if (zte_fp_log_level >= level) {\
-				pr_warn("[zte_fp_info] " fmt, ##args); \
+				pr_err("%s%s"fmt, ZLOG_MOD_NAME, ZLOG_VENDOR_NAME, ##args); \
 			} \
 		} while (0)
 
@@ -67,5 +84,11 @@ extern void focaltech_fp_driver_exit(void);
 extern int focaltech_fp_driver_v2_init(void);
 extern void focaltech_fp_driver_v2_exit(void);
 #endif
+
+/*zte_fp_debug*/
+int zte_fp_debug_proc_init(void);
+int zte_fp_debug_proc_deinit(void);
+int zte_fp_debug_gpio_init(void);
+int zte_fp_debug_gpio_deinit(void);
 
 #endif

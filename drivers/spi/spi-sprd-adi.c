@@ -128,6 +128,7 @@
 #define HWRST_STATUS_BOOTLOADER_PANIC	0x10
 #define HWRST_STATUS_RECOVERY		0x20
 #define HWRST_STATUS_NORMAL		0x40
+#define HWRST_STATUS_CHARGERPKEY    0x44
 #define HWRST_STATUS_ALARM		0x50
 #define HWRST_STATUS_SLEEP		0x60
 #define HWRST_STATUS_FASTBOOT		0x30
@@ -459,6 +460,8 @@ static int sprd_adi_restart_handler(struct notifier_block *this,
 		reboot_mode = HWRST_STATUS_FACTORYTEST;
 	else if (!strncmp(cmd, "silent", 6))
 		reboot_mode = HWRST_STATUS_SILENT;
+	else if (!strncmp(cmd, "chargerpkey", 11))
+		reboot_mode = HWRST_STATUS_CHARGERPKEY;
 	else
 		reboot_mode = HWRST_STATUS_NORMAL;
 

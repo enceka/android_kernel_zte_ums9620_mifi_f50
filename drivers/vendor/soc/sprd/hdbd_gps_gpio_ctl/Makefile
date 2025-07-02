@@ -1,0 +1,1 @@
+obj-$(CONFIG_ZTE_HDBD_GPIO_CTL) += hdbd_gps_gpio_ctl.o

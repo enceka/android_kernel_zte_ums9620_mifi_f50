@@ -335,7 +335,7 @@ int gf_hw_reset(struct gf_dev *gf_dev, unsigned int delay_ms)
 		gpio_set_value(gf_dev->reset_gpio, 0);
 		msleep(20);
 		gpio_set_value(gf_dev->reset_gpio, 1);
-		msleep(delay_ms);
+		usleep_range((delay_ms * 1000), ((delay_ms * 1000) + 100));
 		gf_debug(INFO_LOG, "----gf hw reset ok----\n");
 	}
 

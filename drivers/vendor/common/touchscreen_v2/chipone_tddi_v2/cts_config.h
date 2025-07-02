@@ -140,7 +140,6 @@
 #ifdef CONFIG_CTS_CHARGER_DETECT
 #define CONFIG_CTS_CHARGER_DETECT_FILE		"/sys/class/power_supply/battery/present"
 #endif
-/* #define CONFIG_CTS_TP_PROXIMITY */
 
 /* ESD protection */
 #define CONFIG_CTS_ESD_PROTECTION

@@ -39,6 +39,13 @@
 #define GTP_TRANS_X(x, tpd_x_res, lcm_x_res)     (((x)*(lcm_x_res))/(tpd_x_res))
 #define GTP_TRANS_Y(y, tpd_y_res, lcm_y_res)     (((y)*(lcm_y_res))/(tpd_y_res))
 
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+#define ZTE_KNUCKLE_DATA_SIZE 100
+static u8 zte_knuckle_data[ZTE_KNUCKLE_DATA_SIZE] = {0};
+int gcore_ts_read_roi_diffdata(u8 *data);
+extern bool enable_knuckle;
+#endif
+
 extern int gcore_register_fw_class(void);
 extern int gcore_get_fw(void);
 struct gcore_exp_fn_data fn_data = {
@@ -641,16 +648,24 @@ s32 gcore_touch_event_handler(struct gcore_dev *gdev)
 	int lcm_res_y = TOUCH_SCREEN_Y_MAX;
 #endif
 
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	u8 temp_data;
+#endif
+
 #ifdef CONFIG_TOUCHSCREEN_POINT_REPORT_CHECK
 	cancel_delayed_work_sync(&tpd_cdev->point_report_check_work);
 	queue_delayed_work(tpd_cdev->tpd_report_wq, &tpd_cdev->point_report_check_work, msecs_to_jiffies(150));
 #endif
 
-
-
 #ifdef CONFIG_ENABLE_FW_RAWDATA
 	if (gdev->fw_mode == DEMO) {
 		data_size = DEMO_DATA_SIZE;
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+		if (enable_knuckle) {
+			data_size = data_size + ZTE_KNUCKLE_DATA_SIZE - 2;
+		}
+		//GTP_DEBUG("gdev->fw_mode == DEMO, data_size = %d", data_size);
+#endif
 	} else if (gdev->fw_mode == RAWDATA) {
 		data_size = g_rawdata_row * g_rawdata_col * 2;
 	} else if (gdev->fw_mode == DEMO_RAWDATA) {
@@ -669,7 +684,6 @@ s32 gcore_touch_event_handler(struct gcore_dev *gdev)
 	else if (gdev->fw_mode == FW_DEBUG) {
 		data_size = 175;
 		/* data_size = gdev->fw_packet_len; */
-
 	}else {
 #ifdef CONFIG_TOUCH_DRIVER_INTERFACE_SPI
 		data_size = 2048;	/* mtk platform spi transfer len request */
@@ -687,6 +701,46 @@ s32 gcore_touch_event_handler(struct gcore_dev *gdev)
 		GTP_ERROR("touch data read error.");
 		return -EPERM;
 	}
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	if (enable_knuckle) {
+		GTP_INFO("touch data read success, data_size = %d", data_size);
+		/* print gcore 98 bytes knuckle data : offset 65 bytes*/
+		GTP_DEBUG("==========================GCORE ROI START=======================");
+		for (i = 0 ; i < (ZTE_KNUCKLE_DATA_SIZE - 2) ; i ++) {
+			pr_cont("ROI[%5d]    ", gdev->touch_data[i + DEMO_DATA_SIZE]);
+			if ((i > 0) && ((i+1) % 10 == 0)) {
+				pr_cont("\n");
+			}
+		}
+		pr_cont("\n");
+		GTP_DEBUG("==========================GCORE ROI END=======================");
+
+		/* copy gcore 98 bytes data to zte */
+		for (i = 0 ; i < (ZTE_KNUCKLE_DATA_SIZE - 2) ; i ++) {
+			zte_knuckle_data[i + 2] = gdev->touch_data[i + DEMO_DATA_SIZE];
+		}
+		/* print 100 bytes zte_knuckle_data */
+		GTP_DEBUG("==========================ZTE ROI START=======================");
+		for (i = 0 ; i < ZTE_KNUCKLE_DATA_SIZE ; i ++) {
+			pr_cont("ROI[%5d]    ", zte_knuckle_data[i]);
+			if ((i > 0) && ((i+1) % 10 == 0)) {
+				pr_cont("\n");
+			}
+		}
+		GTP_DEBUG("==========================ZTE ROI END=======================");
+
+		/* 98 bytes data : low high -> hign low */
+		for(i = 0 ; i < 49 ; i ++) {
+			temp_data = zte_knuckle_data[2 + (i * 2)];
+			zte_knuckle_data[2 + (i * 2)] = zte_knuckle_data[2 + (i * 2 + 1)];
+			zte_knuckle_data[2 + (i * 2 + 1)] = temp_data;
+		}
+
+		gcore_ts_read_roi_diffdata(zte_knuckle_data);
+	} else {
+		//GTP_DEBUG("Do Nothing");
+	}
+#endif
 /* printk("<tian> data_size = %d\n",data_size); */
 	if(gdev->fw_mode == DEMO_RAWDATA_DEBUG){
 		for(i=1152+65;i<1319;i+=2){
@@ -775,9 +829,7 @@ s32 gcore_touch_event_handler(struct gcore_dev *gdev)
 
 	checksum = Cal8bitsChecksum(coor_data, DEMO_DATA_SIZE - 1);
 	if (checksum != coor_data[DEMO_DATA_SIZE - 1]) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		GTP_ERROR("checksum error! read:%x cal:%x", \
 			coor_data[DEMO_DATA_SIZE - 1], checksum);
 #if 1
@@ -883,7 +935,19 @@ s32 gcore_touch_event_handler(struct gcore_dev *gdev)
 static irqreturn_t tpd_event_handler(int irq, void *dev_id)
 {
 	struct gcore_dev *gdev = (struct gcore_dev *)dev_id;
+#ifdef CONFIG_PM
+	int ret = 0;
 
+	if (gdev->tp_suspend && gdev->pm_suspend) {
+		ret = wait_for_completion_timeout(
+					&gdev->pm_completion,
+ 					msecs_to_jiffies(ZTP_TIMEOUT_COMERR_PM));
+		if (!ret) {
+			GTP_ERROR("Bus don't resume from pm(deep),timeout,skip irq");
+			return IRQ_HANDLED;
+		}
+	}
+#endif
 	if (mutex_is_locked(&gdev->transfer_lock)) {
 		GTP_DEBUG("touch is locked, ignore");
 		return IRQ_HANDLED;
@@ -1041,12 +1105,9 @@ void gcore_wdt_recovery_works(struct work_struct *work)
 
 	wdt_contin++;
 	mp_wait_int_set_fail();
-	GTP_ERROR("WDT timeout recovery ts:%d,wdtime:%d", gdev->ts_stat, wdt_contin);
-
-	if (!gdev->ts_stat) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	if (!gdev->ts_stat) {		
+		GTP_ERROR("WDT timeout recovery ts:%d,wdtime:%d", gdev->ts_stat, wdt_contin);
 		tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
 		if (wdt_contin < 2) {
 			gcore_request_firmware_update_work(NULL);
 		} else {
@@ -1364,10 +1425,7 @@ static s32 gcore_i2c_probe(struct i2c_client *client, const struct i2c_device_id
 
 	if (gcore_touch_probe(touch_dev)) {
 		GTP_ERROR("touch registration fail!");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_GCORE)
 		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_GCORE;
-#endif
 		return -EPERM;
 	}
 	gcore_register_fw_class();
@@ -1590,6 +1648,7 @@ static s32 gcore_spi_probe(struct spi_device *slave)
 	touch_dev = kzalloc(sizeof(struct gcore_dev), GFP_KERNEL);
 	if (IS_ERR_OR_NULL(touch_dev)) {
 		GTP_ERROR("allocate touch_dev mem fail!");
+		kfree(touch_dev);
 		return -ENOMEM;
 	}
 
@@ -1604,6 +1663,7 @@ static s32 gcore_spi_probe(struct spi_device *slave)
 	}
 	if (IS_ERR_OR_NULL(touch_dev->CB_value)) {
 		GTP_ERROR("CB_value mem allocate fail");
+		kfree(touch_dev->CB_value);
 	} else {
 		memset(touch_dev->CB_value, 0, CB_SIZE);
 		touch_dev->CB_value[0]	=	0xCB;
@@ -1615,6 +1675,10 @@ static s32 gcore_spi_probe(struct spi_device *slave)
 		GTP_ERROR("touch registration fail!");
 		return -EPERM;
 	}
+#ifdef CONFIG_PM
+	init_completion(&touch_dev->pm_completion);
+	touch_dev->pm_suspend = false;
+#endif
 	gcore_register_fw_class();
 	tpd_cdev->TP_have_registered = true;
 	return 0;
@@ -1645,15 +1709,48 @@ static struct spi_board_info spi_board_devs[] __initdata = {
 #endif
 #endif
 
-static struct spi_device_id tpd_spi_id = { GTP_DRIVER_NAME, 0 };
+#ifdef CONFIG_PM
+static int gtp_pm_suspend(struct device *dev)
+{
+	struct gcore_dev *gdev = fn_data.gdev;
+
+	GTP_INFO("system enters into pm_suspend");
+	gdev->pm_suspend = true;
+	reinit_completion(&gdev->pm_completion);
+	return 0;
+}
+
+static int gtp_pm_resume(struct device *dev)
+{
+	struct gcore_dev *gdev = fn_data.gdev;
+
+	GTP_INFO("system resumes from pm_suspend");
+	gdev->pm_suspend = false;
+	complete(&gdev->pm_completion);
+	return 0;
+}
+
+static const struct dev_pm_ops gtp_dev_pm_ops = {
+	.suspend = gtp_pm_suspend,
+	.resume = gtp_pm_resume,
+};
+#endif
+
+static const struct spi_device_id gcore_spi_id_table[] = {
+	{GTP_DRIVER_NAME, 0},
+	{}
+};
 
 static struct spi_driver tpd_spi_driver = {
 	.probe = gcore_spi_probe,
-	.id_table = &tpd_spi_id,
+	.id_table = gcore_spi_id_table,
 	.driver = {
 		   .name = GTP_DRIVER_NAME,
 		   .owner = THIS_MODULE,
 		   .of_match_table = tpd_of_match,
+#ifdef CONFIG_PM
+		   .pm = &gtp_dev_pm_ops,
+#endif
 		   },
 	.remove = gcore_spi_remove,
 };

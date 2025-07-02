@@ -68,7 +68,7 @@ static ssize_t send(struct device *dev,
 					struct device_attribute *attr,
 					const char *buf, size_t count)
 {
-	s_c[0] = "bt_monitor_hello";
+	s_c[0] = "bt_monitor_new_device";
 	s_c[1] = NULL;
 	kobject_uevent_env(&dev->kobj, KOBJ_CHANGE, s_c);
 	return count;

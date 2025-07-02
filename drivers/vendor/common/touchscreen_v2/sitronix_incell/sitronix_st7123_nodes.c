@@ -2103,6 +2103,77 @@ int  st_proc_stproximity_open(struct inode *inode, struct file *filp)
 	return single_open(filp, st_proc_stproximity_show, NULL);
 }
 
+static ssize_t sitronix_proc_strawdata_read(struct file *filp, char __user *buff, size_t size, loff_t *pPos)
+{
+	int ret = 0;
+	int *rawbuf = NULL;
+	int i, j, rawFrameCnt;
+
+	rawFrameCnt = gts->ts_dev_info.x_chs * gts->ts_dev_info.y_chs;
+	rawbuf = (int *)kmalloc(rawFrameCnt * sizeof(int), GFP_KERNEL);
+	mutex_lock(&gts->mutex);
+	ret = sitronix_ts_get_rawdata(gts, rawbuf);
+	mutex_unlock(&gts->mutex);
+	if(ret < 0){
+		sterr("failed to read rawdata (%d)\n", ret);
+	}
+	else{
+		ret = 0;
+#if 1
+		//print result
+		stmsg("===== rawdata =====\n");
+		for(i = 0; i < gts->ts_dev_info.y_chs; i++){
+			pr_cont("STP[%2d]", i + 1);
+			for(j = 0 ; j <  gts->ts_dev_info.x_chs ; j++){
+				pr_cont("%5d ", rawbuf[j* gts->ts_dev_info.y_chs + i]);
+			}
+			pr_cont("\n");
+		}
+		stmsg("====================\n");
+#endif
+	}
+
+	if(rawbuf){
+		kfree(rawbuf);
+		rawbuf = NULL;
+	}
+	return ret;
+}
+
+static ssize_t sitronix_proc_strawdata_write(struct file *filp, const char *buff, size_t size, loff_t *pPos)
+{
+	char cmd[10] = { 0 };
+
+	if (0 < sitronix_copycmd_without_line(buff, cmd, size)) {
+		sterr("copy data from user space, failed\n");
+		return -EINVAL;
+	}
+	if (strcmp(cmd, sitronix_proc_table[18].off_cmd) == 0){
+		mutex_lock(&gts->mutex);
+		sitronix_ts_enable_raw(gts, 0);
+		sitronix_mt_restore();
+		mutex_unlock(&gts->mutex);
+	}
+	else if (strcmp(cmd, sitronix_proc_table[18].option0) == 0){
+		mutex_lock(&gts->mutex);
+		sitronix_mt_pause();
+		sitronix_ts_enable_raw(gts, 1);	//rawdata
+		mutex_unlock(&gts->mutex);
+	}
+	else if (strcmp(cmd, sitronix_proc_table[18].option1) == 0){
+		mutex_lock(&gts->mutex);
+		sitronix_mt_pause();
+		sitronix_ts_enable_raw(gts, 2);	//delta (diff)
+		mutex_unlock(&gts->mutex);
+	}
+	else
+		sterr("sitronix_proc_strawdata_write got an INVALID rawdata type : %s\n", cmd);
+		return -EINVAL;
+
+	return size;
+}
+
+
 struct file_operations proc_swu_fops = {
 	.write = sitronix_proc_swu_write,
 	.read = sitronix_proc_swu_read,
@@ -2223,6 +2294,11 @@ struct file_operations proc_stproximity_fops = {
 	.release	= single_release,
 };
 
+struct file_operations proc_strawdata_fops = {
+	.write = sitronix_proc_strawdata_write,
+	.read = sitronix_proc_strawdata_read,
+};
+
 sitronix_proc_node_t sitronix_proc_table[] = {
 	{"swu", NULL, &proc_swu_fops, true, "on", "off"},
 	{"glove", NULL, &proc_glove_fops, true, "on", "off"},
@@ -2242,6 +2318,7 @@ sitronix_proc_node_t sitronix_proc_table[] = {
 	{"stdrivercmd", NULL, &proc_stdrivercmd_fops},
 	{"stswu", NULL, &proc_stswu_fops},
 	{"stproximity", NULL, &proc_stproximity_fops},
+	{"strawdata", NULL, &proc_strawdata_fops, true, "", "off", "raw", "delta"},	//18
 };
 
 struct proc_dir_entry *proc_dir_sitronix;

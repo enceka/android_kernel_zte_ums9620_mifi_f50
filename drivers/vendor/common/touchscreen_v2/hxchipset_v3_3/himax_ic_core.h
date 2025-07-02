@@ -141,6 +141,10 @@ void himax_cable_detect_func(bool force_renew);
 void himax_headset_detect_func(void);
 #endif
 
+#if defined(HX_HOR_VER_SWITCH_MODE)
+void himax_hor_ver_switch_func(int switch_flag);
+#endif
+
 int himax_report_data_init(void);
 extern int i2c_error_count;
 
@@ -646,6 +650,7 @@ struct himax_core_fp {
 	int (*_get_touch_data_size)(void);
 	void (*_usb_detect_set)(uint8_t *cable_config);
 	void (*_set_headset_enable)(bool enable);
+	int (*_set_hor_ver_switch_enable)(int switch_flag);
 	int (*_hand_shaking)(void);
 	int (*_determin_diag_rawdata)(int diag_command);
 	int (*_determin_diag_storage)(int diag_command);
@@ -718,6 +723,8 @@ extern void himax_mcu_set_SMWP_enable(uint8_t SMWP_enable, bool suspended);
 extern void himax_mcu_set_HSEN_enable(uint8_t HSEN_enable, bool suspended);
 extern void himax_mcu_usb_detect_set(uint8_t *cable_config);
 extern void himax_enable_headset_mode(bool enable);
+extern int himax_horizontal_and_vertical_switching(int switch_flag);
+
 extern int himax_mcu_chip_self_test(struct seq_file *s, void *v);
 extern void himax_mcu_idle_mode(int disable);
 extern void himax_mcu_reload_disable(int disable);

@@ -383,9 +383,7 @@ const struct cts_firmware *cts_request_newer_firmware_from_fs(
 	ret = request_firmware(&fw, filepath, &cts_dev->pdata->ts_input_dev->dev);
 	if (ret) {
 		cts_err("Could not load firmware from %s: %d", filepath, ret);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif	
 		return NULL;
 	}
 	firmware = kzalloc(sizeof(struct cts_firmware), GFP_KERNEL);
@@ -711,6 +709,7 @@ int cts_update_firmware(struct cts_device *cts_dev,
 	struct cts_firmware_sect_info firmware_info;
 	ktime_t start_time;
 	int ret, retries;
+	int tp_time = 0;
 
 #ifdef CONFIG_CTS_I2C_HOST
 	to_flash = true;
@@ -726,6 +725,7 @@ int cts_update_firmware(struct cts_device *cts_dev,
 		goto out;
 	}
 #else
+	tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
 	cts_info("Update firmware to %s ver: %04x size: %zu",
 		to_flash ? "flash" : "sram",
 		FIRMWARE_VERSION(firmware), firmware->size);
@@ -884,7 +884,8 @@ post_flash_operation:
 
 out:
 	cts_dev->rtdata.updating = false;
-
+	tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+	TPD_DMESG("tp_time cts fw upgrade time:%d.", tp_time);
 	if (ret == 0) {
 		if (firmware_info.firmware_sect_size <=
 			cts_dev->hwdata->sfctrl->xchg_sram_base) {

@@ -386,9 +386,7 @@ static int tpd_enable_wakegesture(struct ztp_device *cdev, int enable)
 {
 	if (ilits->tp_suspend) {
 		cdev->tp_suspend_write_gesture = true;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SUSPEND_GESTURE_OPEN_NO);
-#endif
 	}
 	ilits->gesture = enable;
 	return enable;
@@ -653,6 +651,7 @@ int ilitek_register_fw_class(void)
 	tpd_cdev->tp_resume_func = ilitek_ts_resume;
 	tpd_cdev->tp_suspend_func = ilitek_ts_suspend;
 	tpd_cdev->tpd_shutdown = tpd_ilitek_shutdown;
+	tpd_cdev->input = ilits->input;
 	tpd_init_tpinfo(tpd_cdev);
 	ilits->ilitek_ts_workqueue = create_singlethread_workqueue("ilitek ts workqueue");
 	if (!ilits->ilitek_ts_workqueue) {

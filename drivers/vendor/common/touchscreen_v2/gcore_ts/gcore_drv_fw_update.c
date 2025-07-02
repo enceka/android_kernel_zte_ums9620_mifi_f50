@@ -2593,9 +2593,7 @@ void gcore_request_firmware_update_work(struct work_struct *work)
 
 	if (request_firmware(&fw, FW_BIN_NAME, &gdev_fwu->bus_device->dev)) {
 		GTP_ERROR("request firmware fail");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
 		goto fail1;
 	}
 
@@ -2649,9 +2647,7 @@ fail1:
 #ifdef CONFIG_UPDATE_FIRMWARE_BY_BIN_FILE
 	kfree(fw_buf);
 #endif
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 
 }
 

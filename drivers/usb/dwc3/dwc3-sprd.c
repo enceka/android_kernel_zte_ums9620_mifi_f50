@@ -37,6 +37,10 @@
 #include <linux/usb/sprd_usbm.h>
 #include <linux/usb/role.h>
 
+#ifdef ZTE_FEATURE_PV_AR
+#include <linux/extcon-provider.h>
+#endif
+
 #include "core.h"
 #include "gadget.h"
 #include "io.h"
@@ -58,6 +62,12 @@
 
 #undef dev_dbg
 #define dev_dbg dev_info
+extern int USB_SYSTEM_FLAG;
+enum usb_system {
+	DISCONNECTPC,
+	WINDOWS,
+	CONNECTPC,
+};
 
 enum dwc3_id_state {
 	DWC3_ID_GROUND = 0,
@@ -168,6 +178,65 @@ static int boot_charging;
 static bool boot_calibration;
 static int dwc3_probe_finish;
 
+#ifdef ZTE_FEATURE_PV_AR
+/**
+ * Store the usb status attribure when vbus on
+ */
+struct device *lpm_dev_dwc3;
+int lpm_flag = 0;
+EXPORT_SYMBOL(lpm_flag);
+
+static ssize_t usb_control_dwc3_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t size)
+{
+	struct dwc3_sprd *sdwc = dev_get_drvdata(dev);
+	struct dwc3 *dwc;
+
+	if (!sdwc)
+		return -EINVAL;
+
+
+	dwc = platform_get_drvdata(sdwc->dwc3);
+	if (!dwc)
+		return -EINVAL;
+
+	if (strncmp(buf, "connect", 7) == 0) {
+		usb_phy_init(sdwc->hs_phy);
+		usb_phy_init(sdwc->ss_phy);
+	} else if (strncmp(buf, "disconnect", 10) == 0) {
+		msleep(100);
+		usb_phy_shutdown(sdwc->hs_phy);
+		usb_phy_shutdown(sdwc->ss_phy);
+		//__pm_relax(sdwc->wake_lock);
+	} else if (strncmp(buf, "extcon1", 7) == 0) {
+		lpm_flag = 1;
+		extcon_set_state_sync(sdwc->edev, EXTCON_USB, false);
+		msleep(100);
+		usb_phy_shutdown(sdwc->hs_phy);
+		usb_phy_shutdown(sdwc->ss_phy);
+		__pm_relax(sdwc->wake_lock);
+	} else if (strncmp(buf, "extcon2", 7) == 0) {
+
+		extcon_set_state_sync(sdwc->edev, EXTCON_USB, false);
+		msleep(100);
+		usb_phy_shutdown(sdwc->hs_phy);
+		usb_phy_shutdown(sdwc->ss_phy);
+		//__pm_relax(sdwc->wake_lock);
+	} else if (strncmp(buf, "extcon3", 7) == 0) {
+		extcon_set_state_sync(sdwc->edev, EXTCON_USB, false);
+		msleep(100);
+		__pm_relax(sdwc->wake_lock);
+	} else if (strncmp(buf, "extcon4", 7) == 0) {
+		lpm_flag = 1;
+		extcon_set_state_sync(sdwc->edev, EXTCON_USB, false);
+	}
+
+	return size;
+}
+DEVICE_ATTR_WO(usb_control_dwc3);
+#endif
+
 static ssize_t maximum_speed_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
@@ -238,6 +307,20 @@ static ssize_t usb_data_enabled_show(struct device *dev,
 	return sprintf(buf, "%d\n", usb_data_enabled_flag);
 }
 
+static ssize_t usb_system_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	char *usb_system;
+	if (!USB_SYSTEM_FLAG)
+		usb_system = "DISCONNECTPC";
+	else {
+		if (USB_SYSTEM_FLAG == WINDOWS)
+			usb_system = "Windows";
+		else
+			usb_system = "CONNECTPC";
+        }
+	return sprintf(buf, "%s\n", usb_system);
+}
 static ssize_t usb_data_enabled_store(struct device *dev,
 				struct device_attribute *attr, const char *buf,
 				size_t count)
@@ -268,8 +351,11 @@ static ssize_t usb_data_enabled_store(struct device *dev,
 static  DEVICE_ATTR(usb_data_enabled, 0640,
 			       usb_data_enabled_show, usb_data_enabled_store);
 
+static  DEVICE_ATTR(usb_system, 0444, usb_system_show, NULL);
 static struct attribute *usb_data_control_attrs[] = {
 	&dev_attr_usb_data_enabled.attr,
+	&dev_attr_usb_system.attr,
+	
 	NULL
 };
 
@@ -328,6 +414,9 @@ static void dwc3_sprd_usb_notify_exit(struct platform_device *pdev)
 static struct attribute *dwc3_sprd_attrs[] = {
 	&dev_attr_maximum_speed.attr,
 	&dev_attr_current_speed.attr,
+	#ifdef ZTE_FEATURE_PV_AR
+	&dev_attr_usb_control_dwc3.attr,
+	#endif
 	NULL
 };
 ATTRIBUTE_GROUPS(dwc3_sprd);
@@ -595,18 +684,20 @@ static int dwc3_sprd_otg_start_peripheral(struct dwc3_sprd *sdwc, int on)
 	} else {
 		dev_info(sdwc->dev, "%s: turn off gadget %s\n",
 					__func__, dwc->gadget.name);
-
 		/* phy set vbus disconnected */
 		usb_phy_notify_disconnect(sdwc->ss_phy, 0);
 		/* dwc3 has enough get a disconnect irq*/
 		msleep(20);
 		dev_info(sdwc->dev, "dwc->connected %d\n", dwc->connected);
-
 		usb_gadget_set_state(&dwc->gadget, USB_STATE_NOTATTACHED);
 		dwc3_flush_all_events(sdwc);
 		usb_role_switch_set_role(dwc->role_sw, USB_ROLE_DEVICE);
 		pm_runtime_put_sync(dwc->dev);
 		sdwc->glue_dr_mode = USB_DR_MODE_UNKNOWN;
+		#ifdef ZTE_FEATURE_PV_AR
+		if (lpm_flag)
+			sdwc->vbus_active = 0;
+		#endif
 	}
 
 	return 0;
@@ -772,6 +863,12 @@ static int dwc3_sprd_vbus_notifier(struct notifier_block *nb,
 	/* In usb audio mode, we turn off dwc3, but still keep the vbus on.
 	 * It should income invalid vbus notifier, filter them
 	 */
+	#ifdef ZTE_FEATURE_PV_AR
+	if (event) {
+		pr_err("%s,vbus envent = %d, set lpm_flag = 0 \n", __func__,event);
+		lpm_flag = 0;
+	}
+	#endif
 	spin_lock_irqsave(&sdwc->lock, flags);
 	if (sdwc->is_audio_dev) {
 		spin_unlock_irqrestore(&sdwc->lock, flags);
@@ -1046,6 +1143,8 @@ static void dwc3_sprd_hotplug_sm_work(struct work_struct *work)
 			delay = DWC3_USB_ENABLE_CHECK_DELAY;
 			break;
 		}
+		if (USB_SYSTEM_FLAG)
+			USB_SYSTEM_FLAG = DISCONNECTPC;
 		/*
 		 * The follow ensure that UDC be setted as 25100000.dwc3
 		 * when phone startup with hub plug in. Or UDC would be
@@ -1491,6 +1590,9 @@ static int dwc3_sprd_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, sdwc);
+	#ifdef ZTE_FEATURE_PV_AR
+	lpm_dev_dwc3 = dev;
+	#endif
 
 	ret = sysfs_create_groups(&sdwc->dev->kobj, dwc3_sprd_groups);
 	if (ret) {
@@ -1758,8 +1860,30 @@ static int dwc3_sprd_runtime_idle(struct device *dev)
 	return 0;
 }
 #endif
+#ifdef ZTE_FEATURE_PV_AR
+int musb_lpm_usb_disconnect_dwc3(void)
+{
+	struct dwc3_sprd *sdwc = dev_get_drvdata(lpm_dev_dwc3);
+	struct dwc3 *dwc;
 
+	if (!sdwc)
+		return -EINVAL;
 
+	dwc = platform_get_drvdata(sdwc->dwc3);
+	if (!dwc)
+		return -EINVAL;
+
+	lpm_flag = 1;
+	extcon_set_state_sync(sdwc->edev, EXTCON_USB, false);
+	msleep(100);
+	usb_phy_shutdown(sdwc->hs_phy);
+	usb_phy_shutdown(sdwc->ss_phy);
+	__pm_relax(sdwc->wake_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL(musb_lpm_usb_disconnect_dwc3);
+#endif
 static const struct dev_pm_ops dwc3_sprd_dev_pm_ops = {
 	SET_SYSTEM_SLEEP_PM_OPS(
 		dwc3_sprd_pm_suspend,

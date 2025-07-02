@@ -1145,10 +1145,8 @@ int sitronix_do_upgrade(void)
 			if (ret) {
 				sterr("request_firmware fail - %d\n", retry);
 				retry ++;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 				if (retry >= 3)
 					tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
 			} else {
 				retry = 3;
 			}

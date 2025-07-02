@@ -29,14 +29,13 @@ enum cts_firmware_section_offset {
     CTS_FIRMWARE_CRC_SECTION_OFFSET = 0x17000,
     CTS_DDIPARAM_SECTION_OFFSET = 0x00019000,
     CTS_DDIPARAM_CRC_SECTION_OFFSET = 0x1B000,
-
 };
 #else
 enum cts_firmware_section_offset {
-	CTS_FIRMWARE_SECTION_OFFSET = 0x00000000,
-	CTS_FIRMWARE_CRC_SECTION_OFFSET = 0x30000,
-	CTS_DDIPARAM_SECTION_OFFSET = 0x00031000,
-	CTS_DDIPARAM_CRC_SECTION_OFFSET = 0x33000,
+    CTS_FIRMWARE_SECTION_OFFSET = 0x00000000,
+    CTS_FIRMWARE_CRC_SECTION_OFFSET = 0x30000,
+    CTS_DDIPARAM_SECTION_OFFSET = 0x00031000,
+    CTS_DDIPARAM_CRC_SECTION_OFFSET = 0x33000,
 };
 #endif
 
@@ -69,7 +68,7 @@ struct cts_firmware_sect_info {
 #define FIRMWARE_SECTION_SIZE(firmware) \
     (get_unaligned_le32(FIRMWARE_CRC_SECTION(firmware) + 4))
 #define FIRMWARE_SECTION_CRC_ENABLE(firmware) \
-	(get_unaligned_le32(FIRMWARE_CRC_SECTION(firmware) + 8))
+    (get_unaligned_le32(FIRMWARE_CRC_SECTION(firmware) + 8))
 #define FIRMWARE_CRC_SECTION_SIZE   (20)
 
 #define DDIPARAM_SECTION_ENABLE(firmware) \
@@ -276,7 +275,7 @@ static bool is_multi_section_firmware_valid(const struct cts_firmware *firmware)
                     DDIPARAM_SECTION_CRC(firmware));
             return false;
         }
-	} else
+    } else
         cts_info("DDIParam-section is NOT enabled");
 
     return true;
@@ -296,7 +295,7 @@ static bool is_firmware_valid(const struct cts_firmware *firmware)
 static void parse_single_section_firmware(const struct cts_firmware *firmware,
         struct cts_firmware_sect_info *info)
 {
-	static u8 crc_sect[20] = {0xff};
+    static u8 crc_sect[20] = {0xff};
 
     info->firmware_sect = firmware->data;
     info->firmware_sect_size = firmware->size;
@@ -305,7 +304,7 @@ static void parse_single_section_firmware(const struct cts_firmware *firmware,
     put_unaligned_le32(info->firmware_sect_crc, crc_sect);
     put_unaligned_le32(info->firmware_sect_size, crc_sect + 4);
     put_unaligned_le32(~0x0000C35A, crc_sect + 8);    /* Enable CRC check */
-	put_unaligned_le32(0x7473756E, crc_sect + 16);
+    put_unaligned_le32(0x7473756E, crc_sect + 16);
     info->firmware_crc_sect = crc_sect;
     info->firmware_crc_sect_size = sizeof(crc_sect);
 }
@@ -333,14 +332,14 @@ static int parse_firmware(const struct cts_firmware *firmware,
 {
     memset(info, 0, sizeof(*info));
 
-	if (is_multi_section_firmware(firmware))
-		parse_multi_section_firmware(firmware, info);
-	else
-		parse_single_section_firmware(firmware, info);
+    if (is_multi_section_firmware(firmware))
+        parse_multi_section_firmware(firmware, info);
+    else
+        parse_single_section_firmware(firmware, info);
 
-	cts_info("  Firmware section size: %zu", info->firmware_sect_size);
-	if (info->ddiparam_crc_sect)
-		cts_info("  DDIParam section size: %zu", info->ddiparam_sect_size);
+    cts_info("  Firmware section size: %zu", info->firmware_sect_size);
+    if (info->ddiparam_crc_sect)
+        cts_info("  DDIParam section size: %zu", info->ddiparam_sect_size);
 
     return 0;
 }
@@ -401,7 +400,7 @@ const struct cts_firmware *cts_request_driver_builtin_firmware_by_index(
             "hwid: %06x fwid: %04x size: %zu INVALID",
             firmware->name, firmware->hwid, firmware->hwid,
             firmware->size);
-		} else
+    } else
         cts_warn("Request driver builtin by index %u too large >= %zu",
             index, NUM_DRIVER_BUILTIN_FIRMWARE);
 
@@ -484,7 +483,7 @@ bool is_filesystem_mounted(const char *filepath)
     if (path.mnt->mnt_sb == root_path.mnt->mnt_sb)
         /* not mounted */
         ret = false;
-	else
+    else
         ret = true;
 
     path_put(&path);
@@ -567,9 +566,9 @@ static int cts_request_firmware_full_filepath(struct cts_firmware *firmware,
     {
         int r = filp_close(file, NULL);
 
-		if (r)
-			cts_warn("Close file '%s' failed %d", filepath, r);
-	}
+        if (r)
+            cts_warn("Close file '%s' failed %d", filepath, r);
+    }
 
     return 0;
 
@@ -596,8 +595,17 @@ static int cts_wrap_request_firmware(struct cts_firmware *firmware,
     ret = request_firmware(&firmware->fw, name, device);
     if (ret) {
         cts_err("Could not load firmware from %s: %d", name, ret);
-        return ret;
+        tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
+#ifdef CTS_DEFAULT_FIRMWARE
+        cts_info("try to requeset default fw %s\n", DEFAULT_UPDATE_FIRMWARE_NAME);
+        ret = request_firmware(&firmware->fw, DEFAULT_UPDATE_FIRMWARE_NAME, device);
+        if (ret) {
+            cts_err("Could not load default firmware %s: %d", DEFAULT_UPDATE_FIRMWARE_NAME, ret);
+            return ret;
+        }
+#endif
     }
+    cts_info("request_firmware success\n");
 
     /* Map firmware structure to cts_firmware */
     firmware->data = (u8 *) firmware->fw->data;
@@ -704,10 +712,10 @@ const struct cts_firmware *cts_request_firmware(const struct cts_device *cts_dev
     const struct cts_firmware *firmware_builtin = NULL;
     const struct cts_firmware *firmware_from_file = NULL;
 
-	if (hwid == CTS_DEV_HWID_INVALID)
-		hwid = CTS_DEV_HWID_ANY;
-	if (fwid == CTS_DEV_FWID_INVALID)
-		fwid = CTS_DEV_FWID_ANY;
+    if (hwid == CTS_DEV_HWID_INVALID)
+        hwid = CTS_DEV_HWID_ANY;
+    if (fwid == CTS_DEV_FWID_INVALID)
+        fwid = CTS_DEV_FWID_ANY;
 
     cts_info("Request newer if match hwid: %06x fwid: %04x && ver > %04x",
         hwid, fwid, curr_firmware_ver);
@@ -751,7 +759,7 @@ void cts_release_firmware(const struct cts_firmware *firmware)
             cts_info("Release firmware from direct-load");
             vfree(firmware->data);
             kfree(firmware);
-		} else
+        } else
             /* Builtin firmware with non-NULL name, no need to free */
             cts_info("Release firmware from driver built-in");
     }
@@ -819,8 +827,8 @@ static int validate_flash_data(const struct cts_device *cts_dev, u32 flash_addr,
     }
 
 err_free_buf:
-	if (free_data)
-		kfree(buf);
+    if (free_data)
+        kfree(buf);
 
     return ret;
 }
@@ -936,10 +944,8 @@ int cts_update_firmware(struct cts_device *cts_dev,
 {
     struct cts_firmware_sect_info firmware_info;
     int ret, retries;
-#ifdef CFG_CTS_HEADSET_DETECT
-	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
-#endif
-	bool enabled = cts_is_device_enabled(cts_dev);
+    bool enabled = cts_is_device_enabled(cts_dev);
+    int tp_time = 0;
 
 #ifdef CONFIG_CTS_I2C_HOST
     to_flash = true;
@@ -947,6 +953,7 @@ int cts_update_firmware(struct cts_device *cts_dev,
     to_flash = false;
 #endif
 
+    tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
     cts_info("Update firmware to %s ver: %04x size: %zu",
         to_flash ? "flash" : "sram",
         FIRMWARE_VERSION(firmware), firmware->size);
@@ -956,15 +963,16 @@ int cts_update_firmware(struct cts_device *cts_dev,
         return -EINVAL;
     }
 
-	if (enabled) {
-		ret = cts_stop_device(cts_dev);
-		if (ret) {
-			cts_err("Stop device failed %d(%s)",
-				ret, cts_strerror(ret));
-			return ret;
-		}
-	}
-	cts_dev->rtdata.updating = true;
+    if (enabled) {
+        ret = cts_stop_device(cts_dev);
+        if (ret) {
+            cts_err("Stop device failed %d(%s)",
+                ret, cts_strerror(ret));
+            return ret;
+        }
+    }
+
+    cts_dev->rtdata.updating = true;
 
     ret = cts_enter_program_mode(cts_dev);
     if (ret) {
@@ -972,13 +980,13 @@ int cts_update_firmware(struct cts_device *cts_dev,
         goto out;
     }
 
-	if (to_flash) {
-		ret = cts_prepare_flash_operation(cts_dev);
-		if (ret) {
-			cts_warn("Prepare flash operation failed %d", ret);
-			/* Go through and try */
-		}
-	}
+    if (to_flash) {
+        ret = cts_prepare_flash_operation(cts_dev);
+        if (ret) {
+            cts_warn("Prepare flash operation failed %d", ret);
+            /* Go through and try */
+        }
+    }    
 
     cts_info("Write firmware section to sram size %zu",
             firmware_info.firmware_sect_size);
@@ -1066,7 +1074,8 @@ post_flash_operation:
 
 out:
     cts_dev->rtdata.updating = false;
-
+    tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+    TPD_DMESG("tp_time cts fw upgrade time:%d.", tp_time);
     if (ret == 0) {
         if (firmware_info.firmware_sect_size <=
             cts_dev->hwdata->sfctrl->xchg_sram_base) {
@@ -1077,37 +1086,17 @@ out:
             }
         }
     }
-
-#ifdef CONFIG_CTS_CHARGER_DETECT
-	if (cts_is_charger_exist(cts_dev)) {
-		int r = cts_charger_plugin(cts_dev);
-
-		if (r) {
-			cts_err("Set dev charger attached failed %d", r);
-		}
-	}
-#endif /* CONFIG_CTS_CHARGER_DETECT */
-	
-#ifdef CFG_CTS_HEADSET_DETECT
-		if (cts_data->headset_mode) {
-			cts_earphone_plugin(&cts_data->cts_dev);
-		} else {
-			cts_earphone_plugout(&cts_data->cts_dev);
-		}
-#endif
-
 #ifdef CONFIG_CTS_GLOVE
-	if (cts_is_glove_enabled(cts_dev)) {
-		cts_enter_glove_mode(cts_dev);
-	}
+    if (cts_is_glove_enabled(cts_dev))
+        cts_enter_glove_mode(cts_dev);
 #endif
 
 #ifdef CFG_CTS_FW_LOG_REDIRECT
-	if (cts_is_fw_log_redirect(cts_dev)) {
-		cts_enable_fw_log_redirect(cts_dev);
-	}
+    if (cts_is_fw_log_redirect(cts_dev))
+        cts_enable_fw_log_redirect(cts_dev);
 #endif
 
+    mod_delayed_work(tpd_cdev->tpd_wq, &tpd_cdev->send_cmd_work, msecs_to_jiffies(20));
     return ret;
 }
 

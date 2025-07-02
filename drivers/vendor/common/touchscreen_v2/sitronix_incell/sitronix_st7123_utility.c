@@ -1,6 +1,10 @@
 #include "sitronix_ts.h"
 #include "sitronix_st7123.h"
 
+//rawdata parameters
+int rawdataType = 0;	//0 = disable, 1 = rawdata, 2 = delta
+int *rawBase = NULL;	//baseline
+
 int sitronix_ts_get_device_status(struct sitronix_ts_data *ts_data)
 {
 	int ret;
@@ -30,6 +34,9 @@ int sitronix_ts_get_fw_revision(struct sitronix_ts_data *ts_data)
 	}
 
 	ts_data->ts_dev_info.fw_version = buf[0];
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	tpd_cdev->ic_tpinfo.firmware_ver = buf[0];
+#endif
 	stmsg("FW Version (hex) = %x\n", buf[0]);
 
 	ret = sitronix_ts_reg_read(ts_data, FIRMWARE_REVISION_3, buf, sizeof(buf));
@@ -47,6 +54,7 @@ int sitronix_ts_get_fw_revision(struct sitronix_ts_data *ts_data)
 
 int sitronix_ts_get_max_touches(struct sitronix_ts_data *ts_data)
 {
+#if 0
 	int ret = 0;
 	uint8_t max_touches;
 
@@ -57,6 +65,9 @@ int sitronix_ts_get_max_touches(struct sitronix_ts_data *ts_data)
 	}
 
 	ts_data->ts_dev_info.max_touches = max_touches;
+#else
+	ts_data->ts_dev_info.max_touches = ST_DEFAULT_MAX_TOUCH;
+#endif
 	stmsg("Max touches = %d.\n", ts_data->ts_dev_info.max_touches);
 
 	return 0;
@@ -81,8 +92,9 @@ int sitronix_ts_get_chip_id(struct sitronix_ts_data *ts_data)
 
 int sitronix_ts_get_xy_chs(struct sitronix_ts_data *ts_data)
 {
+#if 0
 	int ret = 0;
-	uint8_t buf[5];
+	uint8_t buf[8];
 
 	ret = TDU_FWInfoRead(2, buf, sizeof(buf));	
 	if (ret < 0) {
@@ -92,14 +104,22 @@ int sitronix_ts_get_xy_chs(struct sitronix_ts_data *ts_data)
 
 	ts_data->ts_dev_info.x_chs = buf[2];
 	ts_data->ts_dev_info.y_chs = buf[3];
+	ts_data->ts_dev_info.n_chs = (buf[5] & 0x78) >> 3; 
+#else
+	ts_data->ts_dev_info.x_chs = STP_X_CHS;
+	ts_data->ts_dev_info.y_chs = STP_Y_CHS;
+	ts_data->ts_dev_info.n_chs = STP_N_CHS;
+#endif
 	stmsg("X_chs = %d.\n", ts_data->ts_dev_info.x_chs);
 	stmsg("Y_chs = %d.\n", ts_data->ts_dev_info.y_chs);
+	stmsg("N_chs = %d.\n", ts_data->ts_dev_info.n_chs);
 
 	return 0;
 }
 
 int sitronix_ts_get_resolution(struct sitronix_ts_data *ts_data)
 {
+#if 0
 	int ret = 0;
 	uint8_t buf[4];
 
@@ -108,9 +128,12 @@ int sitronix_ts_get_resolution(struct sitronix_ts_data *ts_data)
 		sterr("%s: Read resolution error!(%d)\n", __func__, ret);
 		return ret;
 	}
-
 	ts_data->ts_dev_info.x_res = (((uint16_t)buf[0] & 0x3F) << 8) | buf[1];
 	ts_data->ts_dev_info.y_res = (((uint16_t)buf[2] & 0x3F) << 8) | buf[3];
+#else
+	ts_data->ts_dev_info.x_res = ST_DEFAULT_RES_X;
+	ts_data->ts_dev_info.y_res = ST_DEFAULT_RES_Y;
+#endif
 	stmsg("Resolution = %u x %u\n", ts_data->ts_dev_info.x_res, ts_data->ts_dev_info.y_res);
 
 	return 0;
@@ -181,9 +204,11 @@ int sitronix_ts_get_device_info(struct sitronix_ts_data *ts_data)
 	ret = sitronix_ts_get_fw_revision(ts_data);
 	if (ret)
 		return ret;
+#if 0
 	ret = sitronix_ts_get_customer_info(ts_data);
 	if (ret)
 		return ret;
+#endif
 	ret = sitronix_ts_get_resolution(ts_data);
 	if (ret)
 		return ret;
@@ -1326,3 +1351,192 @@ int sitronix_read_driver_cmd(unsigned char dc, unsigned char *buf, int len)
 	return ret;
 }
 
+int sitronix_ts_read_raw_aa(struct sitronix_ts_data *ts_data, int *rawbuf){
+	int ret = 0;
+	int retry = 0, retrymax = 0, xCnt = 0, ix, iy, datasize, i;
+	unsigned char pkt[80];
+
+	retry = 0;
+	retrymax = (gts->ts_dev_info.x_chs + gts->ts_dev_info.n_chs) * 2;
+
+	//wait for header
+	while(retry < retrymax){
+		ret = sitronix_ts_reg_read(ts_data, DATA_OUTPUT_BUFFER, pkt, sizeof(pkt));
+		if(ret < 0){
+			goto END_READ_RAW_AA;
+		}
+		stmsg("pkt type (H)= 0x%02x\n", pkt[0]);
+		if(pkt[0]== 0x10){	//header
+			break;
+		}
+		else{
+			retry++;
+			msleep(1);
+			if(retry > retrymax){
+				ret = -1;
+				sterr("fail to read rawdata header.\n");
+				goto END_READ_RAW_AA;
+			}
+		}
+	}//end of wait for header
+	retry = 0;
+	retrymax = gts->ts_dev_info.x_chs * 2;
+	while(xCnt < gts->ts_dev_info.x_chs){
+		ret = sitronix_ts_reg_read(ts_data, DATA_OUTPUT_BUFFER, pkt, sizeof(pkt));
+		if(ret < 0){
+			goto END_READ_RAW_AA;
+		}
+		stmsg("pkt type (AA) = 0x%02x\n", pkt[0]);
+		if(pkt[0] == 0x13){	//Rawdata AA
+			ix = pkt[2];
+			iy = pkt[3];
+			datasize =  (pkt[1] - 3) / 2;
+			for(i = 0; i < datasize; i++){
+				rawbuf[ix * gts->ts_dev_info.y_chs + iy + i] = (signed short)((pkt[2 + i*2 + 2] << 8) | (pkt[2+ i*2 + 3]));
+			}
+			//stmsg("get x_cnt = %d, x = %d, y = %d\n", xCnt, ix, iy);
+			xCnt++;
+		}
+		else{
+			//ignore packets or unknown packets
+			retry++;
+			msleep(1);
+			if(retry > retrymax){
+				ret = -2;
+				sterr("fail to read rawdata AA.\n");
+				goto END_READ_RAW_AA;
+			}
+		}
+	}
+	ret = 0;
+END_READ_RAW_AA:
+	return ret;
+}
+
+int sitronix_ts_enable_raw(struct sitronix_ts_data *ts_data, int type)
+{
+	int ret = 0, rawFrameCnt = 0, baselineCnt = 5, i, j, retry;
+	unsigned char ctrl, tmp;
+	int *rawbuf = NULL;
+	if(type == rawdataType){
+		return ret;
+	}
+	if(type > 2){
+		return -EINVAL;
+	}
+
+	if(type == 0){
+		//exit rawdata mode
+		ret = sitronix_ts_reg_read(ts_data, MISC_CONTROL, &ctrl, 1);
+		ctrl = ctrl & 0xA3;
+		ctrl = ctrl | 0x04;
+		retry = 0;
+		while(true){
+			sitronix_ts_reg_write(ts_data, MISC_CONTROL, &ctrl, 1);
+			msleep(10);
+			ret = sitronix_ts_reg_read(ts_data, MISC_CONTROL, &tmp, 1);
+			if(tmp == ctrl){
+				break;
+			}
+			else{
+				retry++;
+				if(retry > 5){
+					sterr("Fail to enable Normal mode.\n");
+					return -EIO;
+				}
+			}
+		}
+		//free baseline buffer
+		if(rawBase){
+			kfree(rawBase);
+			rawBase = NULL;
+		}
+		rawdataType = type;
+		stmsg("exit rawdata mode\n");
+	}
+	else{
+		//enter rawdata mode
+		if(rawdataType != 1 && rawdataType != 2){
+			//stmsg("do enter rawdata mode\n");
+			ret = sitronix_ts_reg_read(ts_data, MISC_CONTROL, &ctrl, 1);
+			ctrl = ctrl & 0xA3;
+			ctrl = ctrl | 0x58;
+			retry = 0;
+			while(true){
+				sitronix_ts_reg_write(ts_data, MISC_CONTROL, &ctrl, 1);
+				msleep(10);
+				ret = sitronix_ts_reg_read(ts_data, MISC_CONTROL, &tmp, 1);
+				if(tmp == ctrl){
+					break;
+				}
+				else{
+					retry++;
+					if(retry > 5){
+						sterr("Fail to enable RAWDATA mode.\n");
+						return -EIO;
+					}
+				}
+			}
+			//allocate baseline buffer
+			rawFrameCnt = ts_data->ts_dev_info.x_chs * ts_data->ts_dev_info.y_chs ;
+			rawBase = (int *)kmalloc(rawFrameCnt * sizeof(int), GFP_KERNEL);
+			memset(rawBase, 0, rawFrameCnt * sizeof(int));
+			//create baseline
+			rawbuf = (int *)kmalloc(rawFrameCnt * sizeof(int), GFP_KERNEL);
+			for(i = 0; i < baselineCnt; i++){
+				memset(rawbuf, 0, rawFrameCnt * sizeof(int));
+				ret = sitronix_ts_read_raw_aa(ts_data, rawbuf);
+				if(ret < 0){
+					sterr("Fail to create baseline\n");
+					goto exit_enable_raw;
+				}
+				for(j = 0; j < rawFrameCnt; j++){
+					rawBase[j] += rawbuf[j];
+				}
+			}
+			for(j = 0; j < rawFrameCnt; j++){
+				rawBase[j] = (int)(rawBase[j] / baselineCnt);
+			}
+#if 0
+			//print baseline
+			printk("===== baseline =====\n");
+			for(i = 0; i < ts_data->ts_dev_info.y_chs; i++){
+				for(j = 0 ; j <  ts_data->ts_dev_info.x_chs ; j++){
+					printk("%5d ", rawBase[j* ts_data->ts_dev_info.y_chs + i]);
+				}
+				printk("\n");
+			}
+			printk("====================\n");
+#endif
+		}
+		rawdataType = type;
+		stmsg("enter rawdata mode=%d\n", rawdataType);
+	}
+
+exit_enable_raw:
+	if(rawbuf){
+		kfree(rawbuf);
+		rawbuf = NULL;
+	}
+	return ret;
+}
+
+int sitronix_ts_get_rawdata(struct sitronix_ts_data *ts_data, int *rbuf)
+{
+	int ret = 0, rawFrameCnt, j;
+	if(rawdataType == 0){
+		sterr("rawdata type was not defined.\n");
+		return -EPROTO;
+	}
+	ret = sitronix_ts_read_raw_aa(ts_data, rbuf);
+	if(ret >= 0){
+		if(rawdataType == 2){	//calculate delta, delta = baseline - raw
+			rawFrameCnt = ts_data->ts_dev_info.x_chs * ts_data->ts_dev_info.y_chs;
+			for(j = 0; j < rawFrameCnt; j++){
+				rbuf[j] = rawBase[j] - rbuf[j];
+			}
+		}
+		ret = rawdataType;
+	}
+	return ret;
+}

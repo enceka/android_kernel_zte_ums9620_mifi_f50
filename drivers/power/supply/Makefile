@@ -88,15 +88,16 @@ endif
 
 $(warning "build CONFIG_VENDOR_SQC_COMM_MODULE = $(CONFIG_VENDOR_SQC_COMM_MODULE)")
 ifeq ($(CONFIG_VENDOR_SQC_COMM_MODULE),y)
-	obj-$(CONFIG_VENDOR_SQC_MODULE) += charger-manager-sqc.o
-	charger-manager-sqc-objs := charger-manager-sqc-comm.o sprd_vote.o sprd_vchg_detect.o sprd_fchg_extcon.o
+	obj-$(CONFIG_VENDOR_SQC_MODULE) += sprd-charger-manager.o
+	sprd-charger-manager-objs := charger-manager-sqc-comm.o sprd_vote.o sprd_vchg_detect.o sprd_fchg_extcon.o
+else ifeq ($(CONFIG_VENDOR_SQC_MODULE),m)
+	obj-$(CONFIG_VENDOR_SQC_MODULE) += sprd-charger-manager.o
+	sprd-charger-manager-objs := charger-manager-sqc-v8.o sprd_vote.o sprd_vchg_detect.o sprd_fchg_extcon.o
 else
-	obj-$(CONFIG_VENDOR_SQC_MODULE) += charger-manager-sqc.o
-	charger-manager-sqc-objs := charger-manager-sqc-v8.o sprd_vote.o sprd_vchg_detect.o sprd_fchg_extcon.o
+	obj-$(CONFIG_CHARGER_MANAGER)	+= sprd-charger-manager.o
+	sprd-charger-manager-objs := charger-manager.o sprd_vote.o sprd_vchg_detect.o sprd_fchg_extcon.o
 endif
 
-obj-$(CONFIG_CHARGER_MANAGER)	+= sprd-charger-manager.o
-sprd-charger-manager-objs := charger-manager.o sprd_vote.o sprd_vchg_detect.o sprd_fchg_extcon.o
 obj-$(CONFIG_CHARGER_LT3651)	+= lt3651-charger.o
 obj-$(CONFIG_CHARGER_MAX14577)	+= max14577_charger.o
 obj-$(CONFIG_CHARGER_DETECTOR_MAX14656)	+= max14656_charger_detector.o

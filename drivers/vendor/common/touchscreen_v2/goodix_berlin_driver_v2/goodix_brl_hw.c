@@ -684,10 +684,7 @@ static int brl_read_config(struct goodix_ts_core *cd, u8 *cfg, int size)
 
 	if (checksum_cmp(cfg_head.buf, sizeof(cfg_head), CHECKSUM_MODE_U8_LE)) {
 		ts_err("config head checksum error");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("config head checksum error");
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		ret = -EINVAL;
 		goto exit;
 	}
@@ -713,10 +710,7 @@ static int brl_read_config(struct goodix_ts_core *cd, u8 *cfg, int size)
 	if (checksum_cmp(cfg + sizeof(cfg_head),
 			 cfg_head.cfg_len, CHECKSUM_MODE_U16_LE)) {
 		ts_err("config body checksum error");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("config body checksum error");
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		ret = -EINVAL;
 		goto exit;
 	}
@@ -1035,10 +1029,7 @@ static int brl_get_ic_info(struct goodix_ts_core *cd,
 		if (checksum_cmp((const uint8_t *)afe_data,
 					length, CHECKSUM_MODE_U8_LE)) {
 			ts_info("fw info checksum error!");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("fw info checksum error!");
-		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
+			tpd_zlog_record_notify(TP_CRC_ERROR_NO);
 			usleep_range(5000, 5100);
 			continue;
 		}
@@ -1221,10 +1212,7 @@ static int goodix_touch_handler(struct goodix_ts_core *cd,
 				ts_debug("touch data checksum error");
 				ts_debug("data:%*ph", BYTES_PER_POINT * 2 + 2,
 						&buffer[IRQ_EVENT_HEAD_LEN]);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-				tpd_print_zlog("touch data checksum error,1");
 				tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 				return -EINVAL;
 			}
 		} else {
@@ -1232,10 +1220,7 @@ static int goodix_touch_handler(struct goodix_ts_core *cd,
 					touch_num * BYTES_PER_POINT + 2, CHECKSUM_MODE_U8_LE);
 			if (ret) {
 				ts_debug("touch data checksum error");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-				tpd_print_zlog("touch data checksum error,2");
 				tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 				ts_debug("data:%*ph", touch_num * BYTES_PER_POINT + 2,
 						&buffer[IRQ_EVENT_HEAD_LEN]);
 				return -EINVAL;
@@ -1299,10 +1284,7 @@ static int brl_event_handler(struct goodix_ts_core *cd,
 		ts_debug("touch head checksum err");
 		ts_debug("touch_head %*ph", IRQ_EVENT_HEAD_LEN, pre_buf);
 		ts_event->retry = 1;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("brl_event_handler touch head checksum err");
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		return -EINVAL;
 	}
 
@@ -1383,20 +1365,14 @@ static int brld_get_framedata(struct goodix_ts_core *cd,
 
 	if (checksum_cmp(frame_buf, cd->ic_info.misc.frame_data_head_len, CHECKSUM_MODE_U8_LE)) {
 		ts_err("frame head checksum error");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("frame head checksum error");
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		return -EINVAL;
 	}
 
 	frame_head = (struct frame_head *)frame_buf;
 	if (checksum_cmp(frame_buf, frame_head->cur_frame_len, CHECKSUM_MODE_U16_LE)) {
 		ts_err("frame body checksum error");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("frame body checksum error");
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		return -EINVAL;
 	}
 	cur_ptr = frame_buf;

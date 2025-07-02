@@ -9,6 +9,7 @@
 #define OVT_TCM_MODULE1_LCD_NAME                   "easyquick"
 #define OVT_TCM_MODULE2_LCD_NAME                   "boe_new"
 #define OVT_TCM_MODULE3_LCD_NAME                   "boe"
+
 #define TX_NUM_MAX	32
 #define RX_NUM_MAX	18
 /*default i2c*/
@@ -22,6 +23,6 @@
 
 #define OVT_TCM_LCD_OPERATE_TP_RESET
 
-#define OVT_DEFAULT_FW_IMAGE_NAME "ovt_boe_default_firmware.img"
+#define OVT_DEFAULT_FW_IMAGE_NAME "ovt_6_745_default_firmware"
 
 #endif /* _OMNIVISION_CONFIG_H_ */

@@ -6,9 +6,14 @@
 /** Driver version */
 #define CFG_CTS_DRIVER_MAJOR_VERSION        3
 #define CFG_CTS_DRIVER_MINOR_VERSION        4
-#define CFG_CTS_DRIVER_PATCH_VERSION        3
+#define CFG_CTS_DRIVER_PATCH_VERSION        4
 
-#define CFG_CTS_DRIVER_VERSION              "v3.4.3"
+#define CFG_CTS_DRIVER_VERSION              "v3.4.4"
+
+#ifdef CTS_DEFAULT_FIRMWARE
+extern char cts_default_firmware_name[];
+#define DEFAULT_UPDATE_FIRMWARE_NAME  cts_default_firmware_name
+#endif
 
 /** Use software reset */
 /* #define CONFIG_CTS_ICTYPE_ICNL9922 */
@@ -21,7 +26,7 @@
 /* #define CONFIG_CTS_ICTYPE_ICNL9951 */
 
 /* For Goole Security */
-#define CFG_CTS_FOR_GKI
+/* #define CFG_CTS_FOR_GKI */
 
 /** Whether reset pin is used */
 #define CFG_CTS_HAS_RESET_PIN
@@ -119,7 +124,7 @@
     { GESTURE_C, KEY_C,},               \
     { GESTURE_W, KEY_W,},               \
     { GESTURE_V, KEY_V,},               \
-    { GESTURE_D_TAP, KEY_POWER,},          \
+    { GESTURE_D_TAP, KEY_F1,},          \
     { GESTURE_Z, KEY_Z,},               \
     { GESTURE_M, KEY_M,},               \
     { GESTURE_O, KEY_O,},               \
@@ -157,10 +162,13 @@
 #endif /* CONFIG_CTS_LEGACY_TOOL */
 
 #define CFG_CTS_UPDATE_CRCCHECK
+
+
 /****************************************************************************
  * Platform configurations
  ****************************************************************************/
-/* #define CONFIG_CTS_PM_FB_NOTIFIER */
+#if 0
+#define CONFIG_CTS_PM_FB_NOTIFIER
 
 #ifdef CONFIG_CTS_PM_FB_NOTIFIER
 #ifdef CONFIG_DRM
@@ -175,6 +183,7 @@
 #define CONFIG_CTS_PM_LEGACY
 #endif /*CONFIG_CTS_PM_GENERIC */
 #endif /*CONFIG_CTS_PM_FB_NOTIFIER */
+#endif
 
 #define CFG_CTS_MAX_I2C_XFER_SIZE           (48u)
 #define CFG_CTS_MAX_I2C_READ_SIZE           (2048u)

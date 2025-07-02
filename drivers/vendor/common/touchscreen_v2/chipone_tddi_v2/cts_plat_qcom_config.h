@@ -32,6 +32,7 @@
 
 #define CFG_CTS_DEVICE_NAME                 "chipone-tddi"
 #define CFG_CTS_DRIVER_NAME                 "chipone-tddi"
+#define CFG_CTS_TP_PS_INPUT_DEV_NAME        "proximity_tp"
 
 #if CFG_CTS_MAX_I2C_XFER_SIZE < 8
 #error "I2C transfer size should large than 8"

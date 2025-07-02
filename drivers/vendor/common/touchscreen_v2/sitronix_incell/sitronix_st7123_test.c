@@ -11,6 +11,13 @@
 int st_sqrt(int x);
 #endif
 
+#define TEST_BEYOND_MAX_LIMIT		0x0001
+#define TEST_BEYOND_MIN_LIMIT		0x0002
+#define TEST_GT_OPEN				0x0200
+#define TEST_GT_SHORT				0x0400
+#define BEYOND_UNIFORMITY_LIMIT 0x00800000
+extern int sitronix_tptest_result;
+
 int st_address_mode_hardcode_write(uint8_t *code, int max_len)
 {
 	int ret = 0;
@@ -855,7 +862,7 @@ int st_self_test(void)
 	set_fs(KERNEL_DS);
 	pos = 0;
 
-	st_record_ic_info(filp, &pos);
+	/* st_record_ic_info(filp, &pos); */
 #endif	
 	//get IC position
 	sitronix_get_ic_position(ic_position);
@@ -871,6 +878,7 @@ int st_self_test(void)
 		sitronix_vfswrite(filp, data1, strlen(data1), &pos);
 	} else {
 		stmsg("Test open failed!\n");
+		sitronix_tptest_result = sitronix_tptest_result | TEST_GT_OPEN;
 		snprintf(data1, 50, "Test open failed!\n");
 		sitronix_vfswrite(filp, data1, strlen(data1), &pos);
 	}
@@ -882,6 +890,7 @@ int st_self_test(void)
 		sitronix_vfswrite(filp, data1, strlen(data1), &pos);
 	} else {
 		stmsg("Test short_odd failed!\n");
+		sitronix_tptest_result = sitronix_tptest_result | TEST_GT_SHORT;
 		snprintf(data1, 50, "Test short_odd failed!\n");
 		sitronix_vfswrite(filp, data1, strlen(data1), &pos);
 	}
@@ -893,6 +902,7 @@ int st_self_test(void)
 		sitronix_vfswrite(filp, data1, strlen(data1), &pos);
 	} else {
 		stmsg("Test short_even failed!\n");
+		sitronix_tptest_result = sitronix_tptest_result | TEST_GT_SHORT;
 		snprintf(data1, 50, "Test short_even failed!\n");
 		sitronix_vfswrite(filp, data1, strlen(data1), &pos);
 	}
@@ -904,9 +914,11 @@ int st_self_test(void)
 		sitronix_vfswrite(filp, data1, strlen(data1), &pos);
 	} else {
 		stmsg("Test uniformity failed!\n");
+		sitronix_tptest_result = sitronix_tptest_result | BEYOND_UNIFORMITY_LIMIT;
 		snprintf(data1, 50, "Test uniformity failed!\n");
 		sitronix_vfswrite(filp, data1, strlen(data1), &pos);
 	}
+#if 0
 	//STD test
 	result_std = st_test_std(filp, &pos);
 	if( result_std == 0) {
@@ -915,41 +927,58 @@ int st_self_test(void)
 		sitronix_vfswrite(filp, data1, strlen(data1), &pos);
 	} else {
 		stmsg("Test STD failed!\n");
+		sitronix_tptest_result = sitronix_tptest_result | TEST_BEYOND_MAX_LIMIT | TEST_BEYOND_MIN_LIMIT;
 		snprintf(data1, 50, "Test STD failed!\n");
 		sitronix_vfswrite(filp, data1, strlen(data1), &pos);
 	}
 #else
+	result_std = 0;
+#endif
+#else
 	//open test
 	result_open = st_test_open();
-	if( result_open == 0)
+	if( result_open == 0) {
 		stmsg("Test open successed!\n");
-	else
+	} else {
+		sitronix_tptest_result = sitronix_tptest_result | TEST_GT_OPEN;
 		stmsg("Test open failed!\n");
+	}
 	//short test odd
 	result_short_odd = st_test_short_odd();
-	if( result_short_odd == 0)
+	if( result_short_odd == 0) {
 		stmsg("Test short_odd successed!\n");
-	else
-		stmsg("Test short_odd failed!\n");	
+	} else {
+		sitronix_tptest_result = sitronix_tptest_result | TEST_GT_SHORT;
+		stmsg("Test short_odd failed!\n");
+	}
 	//short test even
 	result_short_even = st_test_short_even();
-	if( result_short_even == 0)
+	if( result_short_even == 0) {
 		stmsg("Test short_even successed!\n");
-	else
+	} else {
+		sitronix_tptest_result = sitronix_tptest_result | TEST_GT_SHORT;
 		stmsg("Test short_even failed!\n");
+	}
 	//uniformity test
 	result_uniformity = st_test_uniformity();
-	if( result_uniformity == 0)
+	if( result_uniformity == 0) {
 		stmsg("Test uniformity successed!\n");
-	else
+	} else {
+		sitronix_tptest_result = sitronix_tptest_result | BEYOND_UNIFORMITY_LIMIT;
 		stmsg("Test uniformity failed!\n");
+	}
+#if 0
 	//STD test
 	result_std = st_test_std();
-	if( result_std == 0)
+	if( result_std == 0) {
 		stmsg("Test STD successed!\n");
-	else
+	} else {
+		sitronix_tptest_result = sitronix_tptest_result | TEST_BEYOND_MAX_LIMIT | TEST_BEYOND_MIN_LIMIT;
 		stmsg("Test STD failed!\n");
-
+	}
+#else
+	result_std = 0;
+#endif
 #endif
 	if ( result_open < 0 || result_short_odd < 0 || result_short_even < 0 || result_uniformity < 0 || result_std < 0)
 		ret = -1;

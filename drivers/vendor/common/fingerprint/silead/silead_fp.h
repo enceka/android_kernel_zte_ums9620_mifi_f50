@@ -268,6 +268,9 @@ struct silfp_data {
 /* -------------------------------------------------------------------- */
 /*                            debug settings                            */
 /* -------------------------------------------------------------------- */
+#define ZLOG_MOD_NAME	"[ZTE_LDD_FP]"
+#define ZLOG_VENDOR_NAME	"[SILEAD]"
+
 typedef enum {
 	ERR_LOG = 0,
 	WARN_LOG,
@@ -276,11 +279,11 @@ typedef enum {
 	ALL_LOG,
 } fp_debug_level_t;
 
-static fp_debug_level_t debug_level = INFO_LOG;
+extern int zte_fp_log_level;
 
 #define LOG_MSG_DEBUG(level, fmt, args...) do { \
-			if (debug_level >= level) {\
-				pr_warn("[sileadfp_info] " fmt, ##args); \
+			if (zte_fp_log_level >= level) {\
+				pr_err("%s%s"fmt, ZLOG_MOD_NAME, ZLOG_VENDOR_NAME, ##args); \
 			} \
 		} while (0)
 

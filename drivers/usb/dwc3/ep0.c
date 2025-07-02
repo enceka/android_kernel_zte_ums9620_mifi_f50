@@ -27,6 +27,24 @@
 #include "gadget.h"
 #include "io.h"
 
+#define USB_CTRL_BREQUEST_TYPE           0XC0
+#define USB_CTRL_BREQUEST_INDEX          0X4
+#define USB_CTRL_BREQUEST_LENGTH         0X10
+
+/*
+#define USB_CTRL_BREQUEST                0X6
+#define USB_CTRL_BREQUEST_VALUE          0X100
+#define USB_CTRL_BREQUEST_LENGTH         0X40
+*/
+
+int USB_SYSTEM_FLAG;
+EXPORT_SYMBOL(USB_SYSTEM_FLAG);
+enum usb_system {
+	DISCONNECTPC,
+	WINDOWS,
+	CONNECTPC,
+};
+
 static void __dwc3_ep0_do_control_status(struct dwc3 *dwc, struct dwc3_ep *dep);
 static void __dwc3_ep0_do_control_data(struct dwc3 *dwc,
 		struct dwc3_ep *dep, struct dwc3_request *req);
@@ -788,6 +806,15 @@ static int dwc3_ep0_std_request(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 	return ret;
 }
 
+
+/*static void sent_windows_uevent(struct dwc3 *dwc) {
+	char * winsystem[2] = {"USB_SYSTEM = WINDOWS", NULL };
+	struct device *dev = dwc->dev;
+	pr_info("start sent zte_sent_windows_uevent");
+	kobject_uevent_env(&dev->kobj, KOBJ_CHANGE, winsystem);
+	pr_info("end sent zte_sent_windows_uevent");
+}
+*/
 static void dwc3_ep0_inspect_setup(struct dwc3 *dwc,
 		const struct dwc3_event_depevt *event)
 {
@@ -795,6 +822,19 @@ static void dwc3_ep0_inspect_setup(struct dwc3 *dwc,
 	int ret = -EINVAL;
 	u32 len;
 
+	u16 w_index = le16_to_cpu(ctrl->wIndex);
+	u16 w_length = le16_to_cpu(ctrl->wLength);
+	u16 w_value = le16_to_cpu(ctrl->wValue);
+	dev_info(dwc->dev, "ctrl->bRequestType = %#X, ctrl->bRequest = %#X, ctrl->wIndex = %#X , ctrl->wValue = %#X, ctrl->wLength = %#X \n", ctrl->bRequestType, ctrl->bRequest, w_index, w_value, w_length);
+	if (ctrl->bRequestType == USB_CTRL_BREQUEST_TYPE) {
+		if ((w_index == USB_CTRL_BREQUEST_INDEX) && (w_length == USB_CTRL_BREQUEST_LENGTH)) {
+			USB_SYSTEM_FLAG = WINDOWS;
+			pr_info("Get System is Windows\n.");
+		}
+	}
+	if (!USB_SYSTEM_FLAG) {
+		USB_SYSTEM_FLAG = CONNECTPC;
+	}
 	if (!dwc->gadget_driver)
 		goto out;
 

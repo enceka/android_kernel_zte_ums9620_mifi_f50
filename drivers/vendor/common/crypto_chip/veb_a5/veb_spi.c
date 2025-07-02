@@ -21,6 +21,26 @@
 
 extern int veb_spi_sync(struct spi_device *spi, struct spi_message *p);
 
+/* add zte boardtest interface start */
+static uint8_t is_crypto_exist = 0;
+#ifdef CONFIG_VENDOR_ZTE_MISC_COMMON
+#include <vendor/common/zte_misc.h>
+
+int is_crypto_exist_get(char *val, const void *arg)
+{
+	return snprintf(val, PAGE_SIZE, "%d", is_crypto_exist);
+}
+
+static struct zte_misc_ops is_crypto_exist_node = {
+	.node_name = "is_crypto_exist",
+	.set = NULL,
+	.get = is_crypto_exist_get,
+	.free = NULL,
+	.arg = NULL,
+};
+#endif
+/* zte boardtest interface end */
+
 typedef struct {
     int len;
     int iCrc;
@@ -1138,12 +1158,19 @@ static int veb_a5_spi_probe(struct spi_device *spi)
         {
             SetPageReserved(virt_to_page(priv->mmap_addr + n * PAGE_SIZE));
         }
+        is_crypto_exist = 1;
     }else{
         veb_platform_exit(spi);
         kfree(priv);
         VEB_ERR("get free pages(size:%d) failed!\n", VEB_MMAP_SIZE);
         return -ENOMEM;
     }
+
+        /* add boardtest interface start */
+#ifdef CONFIG_VENDOR_ZTE_MISC_COMMON
+    zte_misc_register_callback(&is_crypto_exist_node, NULL);
+#endif
+    /* add boardtest interface end */
 
     /**
      * Store veb private data in spi driver_data

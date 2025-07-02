@@ -46,6 +46,7 @@ struct fts_test *fts_ftest;
 struct test_funcs *test_func_list[] = {
 	&test_func_ft8720,
 	&test_func_ft8725,
+	&test_func_ft8057,
 };
 
 /*****************************************************************************

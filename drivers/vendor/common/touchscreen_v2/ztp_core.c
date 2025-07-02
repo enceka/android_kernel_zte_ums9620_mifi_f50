@@ -18,12 +18,15 @@
 #include <linux/seq_file.h>
 #include <linux/of.h>
 #include <linux/power_supply.h>
+#include <linux/pm_wakeup.h>
 #include "ztp_core.h"
 #include "ztp_common.h"
 
 struct ztp_device *tpd_cdev = NULL;
 struct proc_dir_entry *tpd_proc_dir = NULL;
 char lcd_name[MAX_LCD_NAME_LEN] = { 0 };
+char tp_error_info[MAX_LCD_NAME_LEN] = { 0 };
+struct wakeup_source *tp_wakeup;
 
 struct tp_ic_vendor_info tp_ic_vendor_info_l[] = {
 	{TS_CHIP_SYNAPTICS, "synaptics"},
@@ -39,6 +42,7 @@ struct tp_ic_vendor_info tp_ic_vendor_info_l[] = {
 	{TS_CHIP_BTL, "btltp"},
 	{TS_CHIP_SEMI, "semi"},
 	{TS_CHIP_SITRONIX,"sitronix"},
+	{TS_CHIP_ASX,"aixiesheng"},
 	{TS_CHIP_MAX, "Unknown"},
 };
 
@@ -50,6 +54,23 @@ struct ztp_algo_info ztp_algo_info_l[] = {
 	{tp_long_press_enable, "long_press_open"},
 	{tp_long_press_timer, "long_press_timer"},
 	{tp_long_press_pixel, "long_press_pixel"},
+};
+
+struct ztp_error_info tp_error_info_l[] = {
+	{TP_I2C_R_ERROR_NO, "i2c_read_error"},
+	{TP_I2C_W_ERROR_NO, "i2c_write_error"},
+	{TP_SPI_R_ERROR_NO, "spi_read_error"},
+	{TP_SPI_W_ERROR_NO, "spi_write_error"},
+	{TP_CRC_ERROR_NO, "tp_crc_error"},
+	{TP_FW_UPGRADE_ERROR_NO, "fw_upgrade_error"},
+	{TP_ESD_CHECK_ERROR_NO, "tp_esd_error"},
+	{TP_PROBE_ERROR_NO, "tp_probe_error"},
+	{TP_SUSPEND_GESTURE_OPEN_NO, "suspend_open_gesture"},
+	{TP_REQUEST_FIRMWARE_ERROR_NO, "request_fw_error"},
+	{TP_GHOST_ERROR_NO, "ghost_check_error"},
+	{TP_SELF_TEST_ERROR_NO, "tp_self_test_error"},
+	{TP_GET_NOISE_ERROR_NO, "tp_get_noise_error"},
+	{TP_ERROR_NO_MAX, "Unknown"},
 };
 
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
@@ -69,7 +90,7 @@ int get_tp_algo_item_id(char *buf)
 
 	for (i = 0; i < ARRAY_SIZE(ztp_algo_info_l); i++) {
 		if (strnstr(buf, ztp_algo_info_l[i].ztp_algo_item_name, strlen(buf))) {
-			TPD_DMESG("%s: ztp_algo_item_id:%d.\n", __func__, ztp_algo_info_l[i].ztp_algo_item_id);
+			TPD_DMESG("ztp_algo_item_id:%d.\n", ztp_algo_info_l[i].ztp_algo_item_id);
 			return ztp_algo_info_l[i].ztp_algo_item_id;
 		}
 	}
@@ -81,16 +102,31 @@ int get_tp_chip_id(void)
 	int i = 0;
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s:\n", __func__);
+	TPD_DMESG("enter:\n");
 	cdev->tp_chip_id = TS_CHIP_MAX;
-	TPD_DMESG("%s: lcd_name %s.\n", __func__, lcd_name);
+	TPD_DMESG("lcd_name %s.\n", lcd_name);
 	for (i = 0; i < ARRAY_SIZE(tp_ic_vendor_info_l); i++) {
 		if (strnstr(lcd_name, tp_ic_vendor_info_l[i].tp_ic_vendor_name, strlen(lcd_name))) {
 			cdev->tp_chip_id = tp_ic_vendor_info_l[i].tp_chip_id;
-			TPD_DMESG("%s: tp_chip_id is 0x%02x.\n", __func__, cdev->tp_chip_id);
+			TPD_DMESG("tp_chip_id is 0x%02x.\n", cdev->tp_chip_id);
 			return 0;
 		}
 	}
+	return -EIO;
+}
+
+int get_tp_error_info(tp_error_no error_no)
+{
+	int i = 0;
+
+	TPD_DMESG("tp error no: %d.\n", error_no);
+	for (i = 0; i < ARRAY_SIZE(tp_error_info_l); i++) {
+		if (tp_error_info_l[i].error_no == error_no) {
+			snprintf(tp_error_info, sizeof(tp_error_info), "%s", tp_error_info_l[i].tp_error_info);
+			return 0;
+		}
+	}
+	snprintf(tp_error_info, sizeof(tp_error_info), "%s", "tp_error_unknown");
 	return -EIO;
 }
 
@@ -107,11 +143,11 @@ int get_lcd_panel_name(void)
 		lcd_name_p = strstr(cmd_line, "lcd_name=");
 		if (lcd_name_p) {
 			sscanf(lcd_name_p, "lcd_name=%s",lcd_name);
-			TPD_DMESG("%s:lcd name: %s\n", __func__, lcd_name);
+			TPD_DMESG("lcd name: %s\n",lcd_name);
 		}
 	} else {
 		snprintf(lcd_name, sizeof(lcd_name), "Unknown_lcd");
-		TPD_DMESG("%s:can't not parse bootargs property\n", __func__);
+		TPD_DMESG("can't not parse bootargs property\n");
 	}
 	return ret;
 }
@@ -210,8 +246,13 @@ static ssize_t tp_module_info_read(struct file *file,
 	if (cdev->ic_tpinfo.spi_num)
 		len += snprintf(buffer_tpd + len, sizeof(buffer_tpd) - len, "Spi num: %d\n",
 			cdev->ic_tpinfo.spi_num);
-	len += snprintf(buffer_tpd + len, sizeof(buffer_tpd) - len, "Firmware version : 0x%x\n",
-			cdev->ic_tpinfo.firmware_ver);
+	if (cdev->tp_chip_id == TS_CHIP_OMNIVISION) {
+		len += snprintf(buffer_tpd + len, sizeof(buffer_tpd) - len, "Firmware version : %d\n",
+				cdev->ic_tpinfo.firmware_ver);
+	} else {
+		len += snprintf(buffer_tpd + len, sizeof(buffer_tpd) - len, "Firmware version : 0x%x\n",
+				cdev->ic_tpinfo.firmware_ver);
+	}
 	if (cdev->ic_tpinfo.config_ver)
 		len += snprintf(buffer_tpd + len, sizeof(buffer_tpd) - len, "Config version:0x%x\n",
 			cdev->ic_tpinfo.config_ver);
@@ -234,10 +275,15 @@ static ssize_t tp_wake_gesture_read(struct file *file,
 	if (*offset != 0) {
 		return 0;
 	}
+
+	if (!cdev->TP_have_registered) {
+		return 0;
+	}
+
 	if (cdev->get_gesture) {
 		cdev->get_gesture(cdev);
 	}
-	TPD_DMESG("%s val:%d.\n", __func__, cdev->b_gesture_enable);
+	TPD_DMESG("val:%d.\n", cdev->b_gesture_enable);
 
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->b_gesture_enable);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
@@ -254,7 +300,12 @@ static ssize_t tp_wake_gesture_write(struct file *file,
 	if (ret)
 		return -EINVAL;
 	input = input > 0 ? 1 : 0;
-	TPD_DMESG("%s val %d.\n", __func__, input);
+	TPD_DMESG("val %d.\n", input);
+
+	if (!cdev->TP_have_registered) {
+		return len;
+	}
+
 	if (cdev->wake_gesture) {
 		cdev->wake_gesture(cdev, input);
 	}
@@ -273,7 +324,7 @@ static ssize_t tp_smart_cover_read(struct file *file,
 	if (cdev->get_smart_cover) {
 		cdev->get_smart_cover(cdev);
 	}
-	TPD_DMESG("%s val:%d.\n", __func__, cdev->b_smart_cover_enable);
+	TPD_DMESG("val:%d.\n", cdev->b_smart_cover_enable);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->b_smart_cover_enable);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -289,7 +340,7 @@ static ssize_t tp_smart_cover_write(struct file *file,
 	if (ret)
 		return -EINVAL;
 	input = input > 0 ? 1 : 0;
-	TPD_DMESG("%s val %d.\n", __func__, input);
+	TPD_DMESG("val %d.\n", input);
 	if (cdev->set_smart_cover) {
 		cdev->set_smart_cover(cdev, input);
 	}
@@ -308,7 +359,7 @@ static ssize_t tp_glove_read(struct file *file,
 	if (cdev->get_glove_mode) {
 		cdev->get_glove_mode(cdev);
 	}
-	TPD_DMESG("%s val:%d.\n", __func__, cdev->b_glove_enable);
+	TPD_DMESG("val:%d.\n", cdev->b_glove_enable);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->b_glove_enable);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -324,7 +375,7 @@ static ssize_t tp_glove_write(struct file *file,
 	if (ret)
 		return -EINVAL;
 	input = input > 0 ? 1 : 0;
-	TPD_DMESG("%s val %d.\n", __func__, input);
+	TPD_DMESG("val %d.\n", input);
 	if (cdev->set_glove_mode) {
 		cdev->set_glove_mode(cdev, input);
 	}
@@ -340,7 +391,7 @@ static ssize_t tpfwupgrade_store(struct file *file,
 	ret = kstrtouint_from_user(buffer, len, 10, &fw_size);
 	if (ret)
 		return -EINVAL;
-	TPD_DMESG("%s val %d.\n", __func__, fw_size);
+	TPD_DMESG("val %d.\n", fw_size);
 	mutex_lock(&cdev->cmd_mutex);
 	if (fw_size > 10) {
 		if (cdev->tp_firmware != NULL) {
@@ -393,7 +444,7 @@ static ssize_t suspend_show(struct file *file,
 	if (cdev->tp_suspend_show) {
 		cdev->tp_suspend_show(cdev);
 	}
-	TPD_DMESG("%s val:%d.\n", __func__, cdev->tp_suspend);
+	TPD_DMESG("val:%d.\n", cdev->tp_suspend);
 	len = snprintf(data_buf, sizeof(data_buf), "tp suspend is: %u\n", cdev->tp_suspend);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -409,11 +460,11 @@ static ssize_t suspend_store(struct file *file,
 	if (ret)
 		return -EINVAL;
 	input = input > 0 ? 1 : 0;
-	TPD_DMESG("%s val %d.\n", __func__, input);
+	TPD_DMESG("val %d.\n", input);
 
 	mutex_lock(&cdev->cmd_mutex);
 	if (cdev->sys_set_tp_suspend_flag == input) {
-		TPD_DMESG("%s tp state don't need change.\n", __func__);
+		TPD_DMESG("tp state don't need change.\n");
 		mutex_unlock(&cdev->cmd_mutex);
 		return len;
 	}
@@ -438,7 +489,7 @@ static ssize_t tp_single_tap_read(struct file *file,
 	if (cdev->get_singletap)
 		cdev->get_singletap(cdev);
 
-	TPD_DMESG("%s val: %d.\n", __func__, cdev->b_single_tap_enable);
+	TPD_DMESG("val: %d.\n", cdev->b_single_tap_enable);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->b_single_tap_enable);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -455,7 +506,7 @@ static ssize_t tp_single_tap_write(struct file *file,
 		return -EINVAL;
 
 	input = input > 0 ? 5 : 0;
-	TPD_DMESG("%s val = %d\n", __func__, input);
+	TPD_DMESG("val = %d\n", input);
 
 	if (cdev->set_singletap)
 		cdev->set_singletap(cdev, input);
@@ -476,7 +527,7 @@ static ssize_t tp_single_aod_read(struct file *file,
 	if (cdev->get_singleaod)
 		cdev->get_singleaod(cdev);
 
-	TPD_DMESG("%s val: %d.\n", __func__, cdev->b_single_aod_enable);
+	TPD_DMESG("val: %d.\n", cdev->b_single_aod_enable);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->b_single_aod_enable);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -493,7 +544,7 @@ static ssize_t tp_single_aod_write(struct file *file,
 		return -EINVAL;
 
 	input = input > 0 ? 5 : 0;
-	TPD_DMESG("%s val = %d\n", __func__, input);
+	TPD_DMESG("val = %d\n", input);
 
 	if (cdev->set_singleaod)
 		cdev->set_singleaod(cdev, input);
@@ -586,11 +637,19 @@ static ssize_t tp_edge_report_limit_write(struct file *file,
 		/* user set level  0-5: x_max x 1% increase
 		     user set level  6-10:  x_max x 0.5% increase
 		*/
+#ifdef CONFIG_EDGE_MISTOUCH_PREVENTION_NARROW
+		if (cdev->edge_limit_pixel_level <= 5)
+			cdev->user_edge_limit[0] = cdev->max_x * cdev->edge_limit_pixel_level * 5 / 1000;
+		else
+			cdev->user_edge_limit[0] = cdev->max_x * 25  / 1000
+				+ (cdev->max_x  * 3 / 1000) * (cdev->edge_limit_pixel_level - 5);
+#else
 		if (cdev->edge_limit_pixel_level <= 5)
 			cdev->user_edge_limit[0] = cdev->max_x * cdev->edge_limit_pixel_level * 7 / 1000;
 		else
 			cdev->user_edge_limit[0] = cdev->max_x * 35  / 1000
 				+ (cdev->max_x  * 4 / 1000) * (cdev->edge_limit_pixel_level - 5);
+#endif
 		cdev->user_edge_limit[1] = 0;
 		TPD_DMESG("edge_limit_pixel_level = %d, limit[0,1] = [%d,%d]\n",
 			cdev->edge_limit_pixel_level, cdev->user_edge_limit[0], cdev->user_edge_limit[1]);
@@ -680,7 +739,7 @@ static ssize_t get_one_key(struct file *file,
 	if (cdev->get_one_key) {
 		cdev->get_one_key(cdev);
 	}
-	TPD_DMESG("%s val:%d.\n", __func__, cdev->one_key_enable);
+	TPD_DMESG("val:%d.\n", cdev->one_key_enable);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->one_key_enable);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -698,7 +757,7 @@ static ssize_t set_one_key(struct file *file,
 
 	input = input > 0 ? 1 : 0;
 
-	TPD_DMESG("%s val = %d\n", __func__, input);
+	TPD_DMESG("val = %d\n", input);
 
 	if (cdev->set_one_key) {
 		cdev->set_one_key(cdev, input);
@@ -720,7 +779,7 @@ static ssize_t get_play_game(struct file *file,
 	if (cdev->get_play_game) {
 		cdev->get_play_game(cdev);
 	}
-	TPD_DMESG("%s val:%d.\n", __func__, cdev->play_game_enable);
+	TPD_DMESG("val:%d.\n", cdev->play_game_enable);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->play_game_enable);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -738,7 +797,7 @@ static ssize_t set_play_game(struct file *file,
 
 	/*input = input > 0 ? 1 : 0;*/
 
-	TPD_DMESG("%s val = %d\n", __func__, input);
+	TPD_DMESG("val = %d\n", input);
 
 	if (cdev->set_play_game) {
 		cdev->set_play_game(cdev, input);
@@ -760,7 +819,7 @@ static ssize_t get_tp_report_rate(struct file *file,
 	if (cdev->get_tp_report_rate) {
 		cdev->get_tp_report_rate(cdev);
 	}
-	TPD_DMESG("%s val:%d.\n", __func__, cdev->tp_report_rate);
+	TPD_DMESG("val:%d.\n", cdev->tp_report_rate);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->tp_report_rate);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -778,7 +837,7 @@ static ssize_t set_tp_report_rate(struct file *file,
 
 	/*input = input > 0 ? 1 : 0;*/
 
-	TPD_DMESG("%s val = %d\n", __func__, input);
+	TPD_DMESG("val = %d\n", input);
 
 	if (cdev->set_tp_report_rate) {
 		cdev->set_tp_report_rate(cdev, input);
@@ -800,8 +859,15 @@ static ssize_t get_tp_noise_show(struct file *file,
 	}
 
 	mutex_lock(&cdev->cmd_mutex);
-	if (cdev->get_noise)
+	if (cdev->get_noise) {
+		TPD_DMESG("get tp noise start need tp resume.");
+		cdev->need_tp_resume = true;
+		reinit_completion(&cdev->tp_event_completion);
 		retval = cdev->get_noise(cdev);
+		cdev->need_tp_resume = false;
+		complete(&cdev->tp_event_completion);
+		TPD_DMESG("get tp noise end.");
+	}
 	if (cdev->tp_firmware != NULL) {
 		len = snprintf(data_buf, sizeof(data_buf), "%d\n", cdev->tp_firmware->size);
 		TPD_DMESG("get tp noise size:%d.\n", cdev->tp_firmware->size);
@@ -840,10 +906,15 @@ static ssize_t headset_state_show(struct file *file,
 	if (*offset != 0) {
 		return 0;
 	}
+
+	if (!cdev->TP_have_registered) {
+		return 0;
+	}
+
 	if (cdev->headset_state_show) {
 		cdev->headset_state_show(cdev);
 	}
-	TPD_DMESG("%s val:%d.\n", __func__, cdev->headset_state);
+	TPD_DMESG("val:%d.\n", cdev->headset_state);
 	len = snprintf(data_buf, sizeof(data_buf), "headset state: %u\n", cdev->headset_state);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -864,7 +935,12 @@ static ssize_t headset_state_store(struct file *file,
 	if (ret)
 		return -EINVAL;
 	input = input > 0 ? 1 : 0;
-	TPD_DMESG("headset_state: %s val %d.\n", __func__, input);
+	TPD_DMESG("headset_state: val %d.\n", input);
+
+	if (!cdev->TP_have_registered) {
+		return len;
+	}
+
 	if (cdev->set_headset_state) {
 		cdev->set_headset_state(cdev, input);
 	}
@@ -881,7 +957,7 @@ static ssize_t get_rotation_limit_level(struct file *file,
 	if (*offset != 0) {
 		return 0;
 	}
-	TPD_DMESG("tpd: %s val:%d.\n", __func__, cdev->rotation_limit_level);
+	TPD_DMESG("val:%d.\n", cdev->rotation_limit_level);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->rotation_limit_level);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -899,7 +975,7 @@ static ssize_t set_rotation_limit_level(struct file *file,
 
 	/*input = input > 0 ? 1 : 0;*/
 
-	TPD_DMESG("tpd: %s val = %d\n", __func__, input);
+	TPD_DMESG("val = %d\n", input);
 	if (input > 3)
 		input = 3;
 	cdev->rotation_limit_level = input;
@@ -918,7 +994,7 @@ static ssize_t display_rotation_show(struct file *file,
 		return 0;
 	}
 
-	TPD_DMESG("%s val:%d.\n", __func__, cdev->display_rotation);
+	TPD_DMESG("val:%d.\n", cdev->display_rotation);
 	len = snprintf(data_buf, sizeof(data_buf), "display rotation: %d\n", cdev->display_rotation);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -939,7 +1015,12 @@ static ssize_t set_display_rotation(struct file *file,
 	if (ret)
 		return -EINVAL;
 	cdev->display_rotation = input;
-	TPD_DMESG("display rotation: %s val %d.\n", __func__, cdev->display_rotation);
+	TPD_DMESG("display rotation: val %d.\n", cdev->display_rotation);
+
+	if (!cdev->TP_have_registered) {
+		return len;
+	}
+
 	if (cdev->set_display_rotation) {
 		cdev->set_display_rotation(cdev, input);
 	}
@@ -959,7 +1040,7 @@ static ssize_t tp_sensibility_level_read(struct file *file,
 	if (cdev->get_sensibility) {
 		cdev->get_sensibility(cdev);
 	}
-	TPD_DMESG("%s:ensibility level:val %d.\n", __func__, cdev->sensibility_level);
+	TPD_DMESG("ensibility level:val %d.\n", cdev->sensibility_level);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->sensibility_level);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -982,7 +1063,7 @@ static ssize_t tp_sensibility_level_write(struct file *file,
 		return -EINVAL;
 
 	cdev->sensibility_level = input;
-	TPD_DMESG("%s:ensibility level:val %d.\n", __func__, cdev->sensibility_level);
+	TPD_DMESG("ensibility level:val %d.\n", cdev->sensibility_level);
 	if (cdev->set_sensibility) {
 		cdev->set_sensibility(cdev, input);
 	}
@@ -1003,7 +1084,7 @@ static ssize_t tp_pen_only_read(struct file *file,
 	if (cdev->get_pen_only_mode) {
 		cdev->get_pen_only_mode(cdev);
 	}
-	TPD_DMESG("%s:pen only model: %d.\n", __func__, cdev->pen_only_mode);
+	TPD_DMESG(":pen only model: %d.\n", cdev->pen_only_mode);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->pen_only_mode);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -1026,7 +1107,7 @@ static ssize_t tp_pen_only_write(struct file *file,
 		return -EINVAL;
        input = input > 0 ? 1 : 0;
 	cdev->pen_only_mode = input;
-	TPD_DMESG("%s:pen only mode:%d.\n", __func__, cdev->pen_only_mode);
+	TPD_DMESG("pen only mode:%d.\n", cdev->pen_only_mode);
 	if (cdev->set_pen_only_mode) {
 		cdev->set_pen_only_mode(cdev, input);
 	}
@@ -1087,7 +1168,7 @@ static ssize_t get_finger_lock_flag(struct file *file,
 	if (*offset != 0) {
 		return 0;
 	}
-	TPD_DMESG("%s val:%d.\n", __func__, cdev->finger_lock_flag);
+	TPD_DMESG("val:%d.\n", cdev->finger_lock_flag);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->finger_lock_flag);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -1105,7 +1186,7 @@ static ssize_t set_finger_lock_flag(struct file *file,
 
 	input = input > 0 ? 1 : 0;
 
-	TPD_DMESG("%s val = %d\n", __func__, input);
+	TPD_DMESG("val = %d\n", input);
 	cdev->finger_lock_flag = input;
 #ifdef CONFIG_TOUCHSCREEN_UFP_MAC
 	if (cdev->finger_lock_flag) {
@@ -1125,6 +1206,7 @@ static ssize_t tp_zlog_debug_read(struct file *file,
 	char *data_buf = NULL;
 	int i = 0;	
 	struct ztp_device *cdev = tpd_cdev;
+	bool tp_error_find = false;
 
 	if (*offset != 0) {
 		return 0;
@@ -1134,8 +1216,21 @@ static ssize_t tp_zlog_debug_read(struct file *file,
 		TPD_DMESG("alloc data_buf failed");
 		return -ENOMEM;
 	}
-	for (i = 0; i < TP_ERROR_NO_MAX; i++){
-		len += snprintf(data_buf + len, PAGE_SIZE -len, "zlog_item.count[%d]:%d.\n", i, cdev->zlog_item.count[i]);
+	for (i = 0; i < TP_ERROR_NO_MAX; i++) {
+		get_tp_error_info(i);
+		if (cdev->zlog_item.count[i]) {
+			tp_error_find = true;
+			len += snprintf(data_buf + len, PAGE_SIZE -len, "%s=true\n", tp_error_info);
+			len += snprintf(data_buf + len, PAGE_SIZE -len, "%s count:%d.\n", tp_error_info, cdev->zlog_item.count[i]);
+		} else {
+			len += snprintf(data_buf + len, PAGE_SIZE -len, "%s=false\n", tp_error_info);
+		}
+	}
+	if (tp_error_find) {
+		len += snprintf(data_buf + len, PAGE_SIZE -len, "tp_error_find=true\n");
+		len += snprintf(data_buf + len, PAGE_SIZE -len, "%s\n", cdev->tp_error_last_log_buffer);
+	} else {
+		len += snprintf(data_buf + len, PAGE_SIZE -len, "tp_error_find=false\n");
 	}
 	simple_read_from_buffer(buffer, count, offset, data_buf, len);
 	kfree(data_buf);
@@ -1184,6 +1279,7 @@ static ssize_t tp_zlog_debug_write(struct file *file,
 		break;
 	case TP_ESD_CHECK_ERROR_NO:
 		tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
+		tpd_notifier_call_chain(TP_ESD_CHECK_ERROR);
 		break;
 	case TP_PROBE_ERROR_NO:
 		tpd_zlog_record_notify(TP_PROBE_ERROR_NO);
@@ -1191,9 +1287,48 @@ static ssize_t tp_zlog_debug_write(struct file *file,
 	case TP_SUSPEND_GESTURE_OPEN_NO:
 		tpd_zlog_record_notify(TP_SUSPEND_GESTURE_OPEN_NO);
 		break;
+	case TP_SELF_TEST_ERROR_NO:
+		tpd_zlog_record_notify(TP_SELF_TEST_ERROR_NO);
+		break;
+	case TP_GET_NOISE_ERROR_NO:
+		tpd_zlog_record_notify(TP_GET_NOISE_ERROR_NO);
+		break;
 	default:
 		break;
 	}
+	return len;
+}
+
+static ssize_t tp_debug_log_enable_read(struct file *file,
+					 char __user *buffer, size_t count, loff_t *offset)
+{
+	ssize_t len = 0;
+	uint8_t data_buf[10] = {0};
+	struct ztp_device *cdev = tpd_cdev;
+
+	if (*offset != 0)
+		return 0;
+
+	TPD_DMESG("val: %d.\n", cdev->debug_log_enable);
+	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->debug_log_enable);
+	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
+}
+
+static ssize_t tp_debug_log_enable_write(struct file *file,
+				const char __user *buffer, size_t len, loff_t *off)
+{
+	int ret = 0;
+	unsigned int input = 0;
+	struct ztp_device *cdev = tpd_cdev;
+
+	ret = kstrtouint_from_user(buffer, len, 10, &input);
+	if (ret)
+		return -EINVAL;
+
+	input = input > 0 ? 1 : 0;
+	TPD_DMESG("val = %d\n", input);
+
+	 cdev->debug_log_enable = input;
 	return len;
 }
 
@@ -1210,7 +1345,7 @@ static ssize_t tp_palm_mode_read(struct file *file,
 	if (cdev->tp_palm_mode_read)
 		cdev->tp_palm_mode_read(cdev);
 
-	TPD_DMESG("tpd: %s val: %d.\n", __func__, cdev->palm_mode_en);
+	TPD_DMESG("tpd: val: %d.\n", cdev->palm_mode_en);
 	len = snprintf(data_buf, sizeof(data_buf), "%u\n", cdev->palm_mode_en);
 	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
 }
@@ -1227,7 +1362,7 @@ static ssize_t tp_palm_mode_write(struct file *file,
 		return -EINVAL;
 
 	input = input > 0 ? 1 : 0;
-	TPD_DMESG("tpd: %s val = %d\n", __func__, input);
+	TPD_DMESG("tpd: val = %d\n", input);
 
 	if (cdev->tp_palm_mode_write)
 		cdev->tp_palm_mode_write(cdev, input);
@@ -1256,10 +1391,13 @@ static ssize_t ghost_debug_read(struct file *file,
 	TPD_DMESG("ghost_check_multi_count is %d", cdev->ghost_check_multi_count);
 	TPD_DMESG("ghost_check_start_time is %d", cdev->ghost_check_start_time);
 	TPD_DMESG("ghost_check_ignore_id is %d", cdev->ghost_check_ignore_id);
+	TPD_DMESG("ghost_check_ignore_edge_area is %d", cdev->ghost_check_ignore_edge_area);
+	TPD_DMESG("ghost_check_ignore_corner_x is %d", cdev->ghost_check_ignore_corner_x);
+	TPD_DMESG("ghost_check_ignore_corner_y is %d", cdev->ghost_check_ignore_corner_y);
 
 	len += snprintf(data_buf + len, PAGE_SIZE - len, "#######################################\n\n");
-	len += snprintf(data_buf + len, PAGE_SIZE - len, "single_time,multi_time,single_count,multi_count,start_time,ignore_id \n");
-	len += snprintf(data_buf + len, PAGE_SIZE - len, "echo 25,20,5,8,35,9 > ghost_debug \n\n");
+	len += snprintf(data_buf + len, PAGE_SIZE - len, "single_time,multi_time,single_count,multi_count,start_time,ignore_id,ignore_edge_area,ignore_corner_x,ignore_corner_y \n");
+	len += snprintf(data_buf + len, PAGE_SIZE - len, "echo 25,20,5,8,35,9,30,40,50 > ghost_debug \n\n");
 	len += snprintf(data_buf + len, PAGE_SIZE - len,  "#######################################\n\n");
 	len += snprintf(data_buf + len, PAGE_SIZE,
 		"ghost_check_single_time is %d\n", cdev->ghost_check_single_time);
@@ -1273,6 +1411,12 @@ static ssize_t ghost_debug_read(struct file *file,
 		"ghost_check_start_time is %d\n", cdev->ghost_check_start_time);
 	len += snprintf(data_buf + len, PAGE_SIZE - len,
 		"ghost_check_ignore_id is %d\n", cdev->ghost_check_ignore_id);
+	len += snprintf(data_buf + len, PAGE_SIZE - len,
+		"ghost_check_ignore_edge_area is %d\n", cdev->ghost_check_ignore_edge_area);
+	len += snprintf(data_buf + len, PAGE_SIZE - len,
+		"ghost_check_ignore_corner_x is %d\n", cdev->ghost_check_ignore_corner_x);
+		len += snprintf(data_buf + len, PAGE_SIZE - len,
+		"ghost_check_ignore_corner_y is %d\n", cdev->ghost_check_ignore_corner_y);
 	simple_read_from_buffer(buffer, count, offset, data_buf, len);
 	kfree(data_buf);
 	return len;
@@ -1286,7 +1430,7 @@ static ssize_t ghost_debug_write(struct file *file,
 	char *cur = NULL;
 	char buff[100] = { 0 };
 	unsigned int  s_to_u8 = 0;
-	u8 data[10] = { 0 };
+	u8 data[20] = { 0 };
 	u16 count = 0;
 	struct ztp_device *cdev = tpd_cdev;
 
@@ -1299,7 +1443,7 @@ static ssize_t ghost_debug_write(struct file *file,
 		}
 	}
 	cur = &buff[0];
-	while ((token = strsep(&cur, ",")) != NULL) {
+	while (((token = strsep(&cur, ",")) != NULL) && (count < 10)) {
 		ret = kstrtouint(token, 10, &s_to_u8);
 		if (ret == 0) {
 			data[count] = s_to_u8;
@@ -1312,7 +1456,182 @@ static ssize_t ghost_debug_write(struct file *file,
 	cdev->ghost_check_multi_count = data[3];
 	cdev->ghost_check_start_time = data[4];
 	cdev->ghost_check_ignore_id = data[5];
+	cdev->ghost_check_ignore_edge_area =  data[6];
+	cdev->ghost_check_ignore_corner_x =  data[7];
+	cdev->ghost_check_ignore_corner_y =  data[8];
 out:
+	return len;
+}
+
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+void tpd_get_hex_diffdata(struct ztp_device *cdev)
+{
+	int index = 0, i = 0;
+	s16 hex_diffdata[49] = {0};
+	int x = 0, y = 0;
+	s16 max_diffdata = 0;
+
+	for (i = 2, index = 0; index < 49; i += 2, index++) {
+		hex_diffdata[index] = (cdev->roi_diffdata[i] << 8) + cdev->roi_diffdata[i + 1];
+	}
+	max_diffdata = hex_diffdata[24];
+	TPD_DBG("max_diffdata:%d,\n", max_diffdata);
+	if (tpd_cdev->debug_log_enable) {
+		for (y = 0; y < 7; y++) {
+			pr_cont("TPD_DIFFDATA[%2d]", (y + 1));
+			for (x = 0; x < 7; x++) {
+				pr_cont("%5d,", hex_diffdata[y + x * 7]);
+			}
+			pr_cont("\n");
+		}
+	}
+}
+
+void tpd_clean_diffdata(void)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	if (cdev->collect_diffdata_enable) {
+		if (cdev->wait_collect_completion) {
+			TPD_DMESG("collect diffdata complete\n");
+			cdev->wait_collect_completion = false;
+			//complete(&cdev->diffdata_collect_completion);
+		}
+	}
+	cdev->get_diffdata_count = 0;
+}
+
+static ssize_t tp_roi_diffdata_read(struct file *file,
+					 char __user *buffer, size_t count, loff_t *offset)
+{
+	unsigned char *diff_data = NULL;
+	struct ztp_device *cdev = tpd_cdev;
+
+	if (*offset != 0)
+		return 0;
+
+	if (cdev->collect_diffdata_enable) {
+		cdev->wait_collect_completion = true;
+		if (!wait_for_completion_timeout(&cdev->diffdata_collect_completion, msecs_to_jiffies(80))) {
+			TPD_DMESG("wait diffdata_collect_completion timeout!");
+		}
+	}
+	if (cdev->roi_diffdata_switch && cdev->get_roi_diffdata)
+		diff_data = cdev->get_roi_diffdata(cdev);
+
+	if (diff_data == NULL) {
+		TPD_DMESG("diff_data is NULL\n");
+		return -ENOMEM;
+	}
+if (cdev->collect_diffdata_enable)
+	return simple_read_from_buffer(buffer, count, offset, diff_data, ROI_DIFFDATA_LENGTH  * COLLECT_MAX_COUNT);
+else
+	return simple_read_from_buffer(buffer, count, offset, diff_data, ROI_DIFFDATA_LENGTH);
+}
+
+static ssize_t tp_roi_diffdata_write(struct file *file,
+				const char __user *buffer, size_t len, loff_t *off)
+{
+ 	int ret = 0;
+	unsigned int input = 0;
+
+	struct ztp_device *cdev = tpd_cdev;
+
+	ret = kstrtouint_from_user(buffer, len, 10, &input);
+	if (ret)
+		return -EINVAL;
+
+	input = input > 0 ? 1 : 0;
+	TPD_DMESG("tpd: %s val = %d\n", __func__, input);
+	cdev->collect_diffdata_enable = input;
+	TPD_DMESG("tpd: collect_diffdata_enable = %d\n", cdev->collect_diffdata_enable);
+	return len;
+}
+
+static ssize_t tp_roi_enable_read(struct file *file,
+					 char __user *buffer, size_t count, loff_t *offset)
+{
+	ssize_t len = 0;
+	int ret = 0;
+	uint8_t data_buf[10] = {0};
+	struct ztp_device *cdev = tpd_cdev;
+
+	if (*offset != 0) {
+		return 0;
+	}
+	if (cdev->tp_send_roi_cmd) {
+		ret = cdev->tp_send_roi_cmd(cdev, TS_CMD_READ);
+		if (ret) {
+			TPD_DMESG("ts read roi cmd failed\n");
+			len = snprintf(data_buf, sizeof(data_buf), "ts read roi cmd failed\n");
+			goto out;
+		}
+	}
+	TPD_DMESG("%s roi switch val:%d.\n", __func__, cdev->roi_diffdata_switch);
+	TPD_DMESG("tpd: collect_diffdata_enable = %d\n", cdev->collect_diffdata_enable);
+
+	len = snprintf(data_buf, sizeof(data_buf), "%d\n",cdev->roi_diffdata_switch);
+out:
+	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
+}
+
+static ssize_t tp_roi_enable_write(struct file *file,
+				const char __user *buffer, size_t len, loff_t *off)
+{
+ 	int ret = 0;
+	unsigned int input = 0;
+	struct ztp_device *cdev = tpd_cdev;
+
+	ret = kstrtouint_from_user(buffer, len, 10, &input);
+	if (ret)
+		return -EINVAL;
+
+	input = input > 0 ? 1 : 0;
+	TPD_DMESG("tpd: %s val = %d\n", __func__, input);
+	if (cdev->roi_diffdata_switch == input) {
+		TPD_DMESG("no need to send same cmd \n");
+		return len;
+	}
+	cdev->roi_diffdata_switch = input;
+	tpd_clean_diffdata();
+	if (cdev->tp_send_roi_cmd) {
+		ret = cdev->tp_send_roi_cmd(cdev, TS_CMD_WRITE);
+		if (ret) {
+			TPD_DMESG("ts send roi cmd failed\n");
+			return -EIO;
+		}
+	}
+	return len;
+}
+#endif
+
+static ssize_t tp_BBAT_test_read(struct file *file,
+					 char __user *buffer, size_t count, loff_t *offset)
+{
+	ssize_t len = 0;
+	uint8_t data_buf[10] = {0};
+	struct ztp_device *cdev = tpd_cdev;
+	int ret = 0;
+
+	if (*offset != 0)
+		return 0;
+
+	if (cdev->tp_bbat_test) {
+		ret = cdev->tp_bbat_test(cdev);
+		if (ret) {
+			TPD_DMESG("tp bbat test failed\n");
+		}
+	} else if (tpd_cdev->TP_have_registered == false) {
+		ret = TP_RST_BAAT_TEST_FAIL;
+	}
+	len = snprintf(data_buf, sizeof(data_buf), "%d\n", ret);
+	return simple_read_from_buffer(buffer, count, offset, data_buf, len);
+}
+
+static ssize_t tp_BBAT_test_write(struct file *file,
+				const char __user *buffer, size_t len, loff_t *off)
+{
+	TPD_DMESG("reserved no use");
 	return len;
 }
 
@@ -1432,6 +1751,12 @@ static const struct file_operations proc_ops_zlog_debug = {
 	.write = tp_zlog_debug_write,
 };
 
+static const struct file_operations proc_ops_debug_log_enable = {
+	.owner = THIS_MODULE,
+	.read = tp_debug_log_enable_read,
+	.write = tp_debug_log_enable_write,
+};
+
 static const struct file_operations proc_ops_palm_mode = {
 	.owner = THIS_MODULE,
 	.read = tp_palm_mode_read,
@@ -1450,14 +1775,34 @@ static const struct file_operations proc_ops_ghost_debug = {
 	.write = ghost_debug_write,
 };
 
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+static const struct file_operations proc_ops_tp_roi_enable = {
+	.owner = THIS_MODULE,
+	.read = tp_roi_enable_read,
+	.write = tp_roi_enable_write,
+};
+
+static const struct file_operations proc_ops_tp_roi_diffdata = {
+	.owner = THIS_MODULE,
+	.read = tp_roi_diffdata_read,
+	.write = tp_roi_diffdata_write,
+};
+#endif
+
+static const struct file_operations proc_ops_BBAT_test = {
+	.owner = THIS_MODULE,
+	.read = tp_BBAT_test_read,
+	.write = tp_BBAT_test_write,
+};
+
 static void create_tpd_proc_entry(void)
 {
 	struct proc_dir_entry *tpd_proc_entry = NULL;
 
-	TPD_DMESG(" %s, enter\n", __func__);
+	TPD_DMESG("enter\n");
 	tpd_proc_dir = proc_mkdir(PROC_TOUCH_DIR, NULL);
 	if (tpd_proc_dir == NULL) {
-		TPD_DMESG("%s: mkdir touchscreen failed!\n",  __func__);
+		TPD_DMESG("mkdir touchscreen failed!\n");
 		return;
 	}
 	tpd_proc_entry = proc_create(PROC_TOUCH_INFO, 0664, tpd_proc_dir, &proc_ops_tp_module_Info);
@@ -1523,19 +1868,32 @@ static void create_tpd_proc_entry(void)
 	tpd_proc_entry = proc_create(PROC_ZLOG_DEBUG, 0664, tpd_proc_dir, &proc_ops_zlog_debug);
 	if (tpd_proc_entry == NULL)
 		pr_err("proc_create zlog_debug failed!\n");
+	tpd_proc_entry = proc_create(PROC_DEBUG_LOG_ENABLE, 0664, tpd_proc_dir, &proc_ops_debug_log_enable);
+	if (tpd_proc_entry == NULL)
+		pr_err("proc_create debug_log_enable failed!\n");
 	tpd_proc_entry = proc_create(PROC_TOUCH_GHOST_DEBUG, 0664, tpd_proc_dir, &proc_ops_ghost_debug);
 	if (tpd_proc_entry == NULL)
 		pr_err("proc_create ghost_debug failed!\n");
 	tpd_proc_entry = proc_create(PROC_TOUCH_TP_PALM_MODE, 0664, tpd_proc_dir, &proc_ops_palm_mode);
 	if (tpd_proc_entry == NULL)
 		pr_err("proc_create palm mode failed!\n");
-
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	tpd_proc_entry = proc_create(PROC_ROI_ENABLE, 0664, tpd_proc_dir, &proc_ops_tp_roi_enable);
+	if (tpd_proc_entry == NULL)
+		pr_err("proc_create tp roi enable failed!\n");
+	tpd_proc_entry = proc_create(PROC_ROI_DIFFDATA, 0664, tpd_proc_dir, &proc_ops_tp_roi_diffdata);
+	if (tpd_proc_entry == NULL)
+		pr_err("proc_create tp roi diffdata failed!\n");
+#endif
+	tpd_proc_entry = proc_create(PROC_BBAT_TEST, 0664, tpd_proc_dir, &proc_ops_BBAT_test);
+	if (tpd_proc_entry == NULL)
+		pr_err("proc_create BBAT_test failed!\n");
 }
 
 void tpd_proc_deinit(void)
 {
 	if (tpd_proc_dir == NULL) {
-		TPD_DMESG("%s: proc/touchscreen is NULL!\n",  __func__);
+		TPD_DMESG("proc/touchscreen is NULL!\n");
 		return;
 	}
 	remove_proc_entry(PROC_TOUCH_INFO, tpd_proc_dir);
@@ -1559,8 +1917,14 @@ void tpd_proc_deinit(void)
 	remove_proc_entry(PROC_TOUCH_TP_SELF_TEST, tpd_proc_dir);
 	remove_proc_entry(PROC_TOUCH_FINGER_LOCK_FLAG, tpd_proc_dir);
 	remove_proc_entry(PROC_ZLOG_DEBUG, tpd_proc_dir);
+	remove_proc_entry(PROC_DEBUG_LOG_ENABLE, tpd_proc_dir);
 	remove_proc_entry(PROC_TOUCH_TP_PALM_MODE, tpd_proc_dir);
 	remove_proc_entry(PROC_TOUCH_GHOST_DEBUG, tpd_proc_dir);
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	remove_proc_entry(PROC_ROI_ENABLE, tpd_proc_dir);
+	remove_proc_entry(PROC_ROI_DIFFDATA, tpd_proc_dir);
+#endif
+	remove_proc_entry(PROC_BBAT_TEST, tpd_proc_dir);
 	remove_proc_entry(PROC_TOUCH_DIR, NULL);
 }
 
@@ -1643,7 +2007,7 @@ static int tpd_fw_sysfs_init(void)
 	int ret = 0;
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG(" %s, enter\n", __func__);
+	TPD_DMESG("enter\n");
 	if (!cdev->zte_touch_pdev){
 		TPD_DMESG("zte_touch_pdev is NULL.");
 		return -EINVAL;
@@ -1688,21 +2052,25 @@ static void tpd_report_uevent(u8 gesture_key)
 	char *envp[2] = {NULL};
 	struct ztp_device *cdev = tpd_cdev;
 
+	__pm_wakeup_event(tp_wakeup, 2000);
+	TPD_DMESG("tp_wakeup success");
 	switch (gesture_key) {
 	case single_tap:
-		TPD_DMESG("%s single tap gesture", __func__);
+		cdev->ztp_time.tp_single_tap_time = jiffies;
+		TPD_DMESG("single tap gesture");
 		envp[0] = "single_tap=true";
 		break;
 	case double_tap:
-		TPD_DMESG("%s double tap gesture", __func__);
+		cdev->ztp_time.tp_double_tap_time = jiffies;
+		TPD_DMESG("double tap gesture");
 		envp[0] = "double_tap=true";
 		break;
 	case pen_low_batt:
-		TPD_DMESG("%s pen low batt", __func__);
+		TPD_DMESG("pen low batt");
 		envp[0] = "pen_capacity_low=true";
 		break;
 	default:
-		TPD_DMESG("%s no such gesture key(%d)", __func__, gesture_key);
+		TPD_DMESG("no such gesture key(%d)", gesture_key);
 		return;
 	}
 
@@ -1714,17 +2082,17 @@ int zte_touch_pdev_register(void)
 	int ret = 0;
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s", __func__);
+	TPD_DMESG("enter");
 	cdev->zte_touch_pdev = platform_device_alloc("zte_touch", -1);
 	if (!cdev->zte_touch_pdev) {
-		TPD_DMESG("%s failed to allocate platform device", __func__);
+		TPD_DMESG("failed to allocate platform device");
 		ret = -ENOMEM;
 		goto alloc_failed;
 	}
 
 	ret = platform_device_add(cdev->zte_touch_pdev);
 	if (ret < 0) {
-		TPD_DMESG("%s failed to add platform device ret=%d", __func__, ret);
+		TPD_DMESG("failed to add platform device ret=%d", ret);
 		goto register_failed;
 	}
 
@@ -1744,7 +2112,7 @@ void zte_touch_pdev_unregister(void)
 	struct ztp_device *cdev = tpd_cdev;
 
 	if (cdev->zte_touch_pdev) {
-		TPD_DMESG("%s device put", __func__);
+		TPD_DMESG("device put");
 		platform_device_unregister(cdev->zte_touch_pdev);
 	}
 }
@@ -1832,6 +2200,24 @@ static int ztp_parse_dt(struct device_node *node, struct ztp_device *cdev)
 		} else {
 			cdev->ghost_check_ignore_id = -1;
 		}
+		ret = of_property_read_u32(node, "zte,ghost_check_ignore_edge_area", &value);
+		if (!ret) {
+			cdev->ghost_check_ignore_edge_area = value;
+		} else {
+			cdev->ghost_check_ignore_edge_area = 0;
+		}
+		ret = of_property_read_u32(node, "zte,ghost_check_ignore_corner_x", &value);
+		if (!ret) {
+			cdev->ghost_check_ignore_corner_x = value;
+		} else {
+			cdev->ghost_check_ignore_corner_x = 0;
+		}
+		ret = of_property_read_u32(node, "zte,ghost_check_ignore_corner_y", &value);
+		if (!ret) {
+			cdev->ghost_check_ignore_corner_y = value;
+		} else {
+			cdev->ghost_check_ignore_corner_y = 0;
+		}
 	} else {
 		cdev->ghost_check_single_time = 25;
 		cdev->ghost_check_multi_time = 20;
@@ -1839,6 +2225,9 @@ static int ztp_parse_dt(struct device_node *node, struct ztp_device *cdev)
 		cdev->ghost_check_multi_count = 8;
 		cdev->ghost_check_start_time = 35;
 		cdev->ghost_check_ignore_id = -1;
+		cdev->ghost_check_ignore_edge_area = 0;
+		cdev->ghost_check_ignore_corner_x = 0;
+		cdev->ghost_check_ignore_corner_y = 0;
 	}
 	TPD_DMESG("ghost_check_single_time is %d", cdev->ghost_check_single_time);
 	TPD_DMESG("ghost_check_multi_time is %d", cdev->ghost_check_multi_time);
@@ -1846,6 +2235,9 @@ static int ztp_parse_dt(struct device_node *node, struct ztp_device *cdev)
 	TPD_DMESG("ghost_check_multi_count is %d", cdev->ghost_check_multi_count);
 	TPD_DMESG("ghost_check_start_time is %d", cdev->ghost_check_start_time);
 	TPD_DMESG("ghost_check_ignore_id is %d", cdev->ghost_check_ignore_id);
+	TPD_DMESG("ghost_check_ignore_edge_area is %d", cdev->ghost_check_ignore_edge_area);
+	TPD_DMESG("ghost_check_ignore_corner_x is %d", cdev->ghost_check_ignore_corner_x);
+	TPD_DMESG("ghost_check_ignore_corner_y is %d", cdev->ghost_check_ignore_corner_y);
 
 	ret = of_property_read_u32(node, "zte,tp_jitter_check", &value);
 	if (!ret) {
@@ -1892,6 +2284,10 @@ static int ztp_parse_dt(struct device_node *node, struct ztp_device *cdev)
 
 static void ztp_probe_work(struct work_struct *work)
 {
+	struct ztp_device *cdev = tpd_cdev;
+	int tp_time = 0;
+
+	cdev->ztp_time.tp_probe_start_time = jiffies;
 #ifdef CONFIG_TOUCHSCREEN_ILITEK_TDDI_V3
 	ilitek_plat_dev_init();
 #endif
@@ -1911,6 +2307,9 @@ static void ztp_probe_work(struct work_struct *work)
 	cts_driver_init();
 #endif
 #ifdef CONFIG_TOUCHSCREEN_CHIPONE_V3
+	cts_driver_init();
+#endif
+#ifdef CONFIG_TOUCHSCREEN_CHIPONE_PAD
 	cts_driver_init();
 #endif
 #ifdef CONFIG_TOUCHSCREEN_OMNIVISION_TCM
@@ -1937,17 +2336,18 @@ static void ztp_probe_work(struct work_struct *work)
 #ifdef CONFIG_TOUCHSCREEN_SITRONIX_INCELL
 	sitronix_ts_init();
 #endif
-#ifdef CONFIG_TOUCHSCREEN_HIMAX_CHIPSET_V3_3
-	himax_common_init();
+#ifdef CONFIG_TOUCHSCREEN_AXS
+	axs_ts_init();
 #endif
-
+	tp_time = get_tp_consum_time(cdev->ztp_time.tp_probe_start_time);
+	TPD_DMESG("tp_time tp probe start -> tp probe end:%d.", tp_time);
 }
 
 void tpd_probe_work_init(void)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s enter", __func__);
+	TPD_DMESG("enter");
 	INIT_DELAYED_WORK(&cdev->tpd_probe_work, ztp_probe_work);
 
 }
@@ -1956,9 +2356,69 @@ void tpd_probe_work_deinit(void)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s enter", __func__);
+	TPD_DMESG("enter");
 	cancel_delayed_work_sync(&cdev->tpd_probe_work);
 
+}
+
+void tpd_get_last_log(void)
+{
+	struct ztp_device *cdev = tpd_cdev;
+	int len = 0;
+	u8 count = 0;
+
+	if (!cdev->tp_error_last_log_buffer) {
+		mutex_unlock(&cdev->zlog_mutex);
+		TPD_ZLOG("tp_error_last_log_buffer is NULL");
+		return;
+	}
+	memset(cdev->tp_error_last_log_buffer, 0, ZLOG_INFO_LEN);
+	time64_to_tm(ktime_get_real_seconds(), 0, &cdev->now_time);
+	len += snprintf(cdev->tp_error_last_log_buffer + len, ZLOG_INFO_LEN - len,
+		"now time:%04d%02d%02d-%02d:%02d:%02d, TP probe time:%04d%02d%02d-%02d:%02d:%02d.\n",
+		(int)(cdev->now_time.tm_year + 1900), cdev->now_time.tm_mon + 1,
+		cdev->now_time.tm_mday, cdev->now_time.tm_hour, cdev->now_time.tm_min,
+		cdev->now_time.tm_sec, (int)(cdev->probe_time.tm_year + 1900), cdev->probe_time.tm_mon + 1,
+		cdev->probe_time.tm_mday, cdev->probe_time.tm_hour, cdev->probe_time.tm_min, cdev->probe_time.tm_sec);
+
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+		zlog_client_record(cdev->zlog_client,
+			 "now time:%04d%02d%02d-%02d:%02d:%02d, TP probe time:%04d%02d%02d-%02d:%02d:%02d",
+			(int)(cdev->now_time.tm_year + 1900), cdev->now_time.tm_mon + 1,
+			cdev->now_time.tm_mday, cdev->now_time.tm_hour, cdev->now_time.tm_min,
+			cdev->now_time.tm_sec, (int)(cdev->probe_time.tm_year + 1900), cdev->probe_time.tm_mon + 1,
+			cdev->probe_time.tm_mday, cdev->probe_time.tm_hour, cdev->probe_time.tm_min, cdev->probe_time.tm_sec);
+#endif
+	mutex_lock(&cdev->zlog_mutex);
+	tpd_cdev->tail = tpd_cdev->pos - 1;
+	tpd_cdev->head = tpd_cdev->pos - 1;
+	tpd_cdev->tail &= LAST_LOG_BUFF_SIZE - 1;
+	tpd_cdev->head &= LAST_LOG_BUFF_SIZE - 1;
+	do {
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+		zlog_client_record(cdev->zlog_client, "%s.", tpd_cdev->last_log_buffer[tpd_cdev->head]);
+#endif
+		len += snprintf(cdev->tp_error_last_log_buffer + len, ZLOG_INFO_LEN - len, "%s",
+			tpd_cdev->last_log_buffer[tpd_cdev->head]);
+		TPD_ZLOG("%s.", tpd_cdev->last_log_buffer[tpd_cdev->head]);
+		tpd_cdev->head--;
+		tpd_cdev->head &= LAST_LOG_BUFF_SIZE - 1;
+		count++;
+	} while ((tpd_cdev->tail != tpd_cdev->head) && (count <= LAST_LOG_BUFF_SIZE));
+	mutex_unlock(&cdev->zlog_mutex);
+}
+
+void tpd_last_log_init(void)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	mutex_init(&cdev->zlog_mutex);
+	cdev->tp_error_last_log_buffer = vmalloc(ZLOG_INFO_LEN);
+	if (!cdev->tp_error_last_log_buffer) {
+		TPD_ZLOG("tp_error_last_log_buffer malloc fail");
+		return;
+	}
+	memset(cdev->tp_error_last_log_buffer, 0, ZLOG_INFO_LEN);
 }
 
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
@@ -1971,7 +2431,7 @@ void tpd_zlog_register(struct ztp_device *cdev)
 
 	cdev->zlog_client = zlog_register_client(&zlog_tp_dev);
 	if (!cdev->zlog_client) {
-		TPD_ZLOG("%s zlog register client zlog_tp_dev fail\n", __func__);
+		TPD_ZLOG("zlog register client zlog_tp_dev fail\n");
 	} else {
 		cdev->ztp_zlog_buffer = vmalloc(ZLOG_INFO_LEN);
 		if (!cdev->ztp_zlog_buffer) {
@@ -1979,7 +2439,7 @@ void tpd_zlog_register(struct ztp_device *cdev)
 			return;
 		}
 		memset(cdev->ztp_zlog_buffer, 0, ZLOG_INFO_LEN);
-		if (cdev->ztp_probe_fail_chip_id != 0xFF) {
+		if (cdev->ztp_probe_fail_chip_id != TS_CHIP_MAX) {
 			tpd_print_zlog("tp probe fail, chip id:%d",cdev->ztp_probe_fail_chip_id);
 			tpd_zlog_record_notify(TP_PROBE_ERROR_NO);
 		}
@@ -1991,6 +2451,11 @@ int tpd_zlog_check(tp_error_no error_no)
 {
 	struct ztp_device *cdev = tpd_cdev;
 	int ret = 0;
+
+	if (error_no > TP_ERROR_NO_MAX) {
+		TPD_ZLOG("error_no is to large.\n");
+		return  -EIO;
+	}
 
 	if ((cdev->zlog_item.count[error_no] > 0)
 		&& (jiffies_to_msecs(jiffies - cdev->zlog_item.timer[error_no])) < 60000) {
@@ -2008,6 +2473,10 @@ void tpd_zlog_record_notify(tp_error_no error_no)
 	int len = 0;
 	unsigned long after_reset_time = 0;
 
+	if (error_no >= TP_ERROR_NO_MAX) {
+		TPD_ZLOG("error_no is to large.\n");
+		return;
+	}
 	if(!cdev->zlog_regisered)
 		tpd_zlog_register(cdev);
 
@@ -2017,8 +2486,13 @@ void tpd_zlog_record_notify(tp_error_no error_no)
 	}
 	after_reset_time = jiffies_to_msecs(jiffies - cdev->tp_reset_timer);
 	len = strlen(cdev->ztp_zlog_buffer);
-	snprintf(cdev->ztp_zlog_buffer + len, ZLOG_INFO_LEN - len, " IC name: %s,module name:%s, Firmware version: 0x%x",
-		zlog_tp_dev.ic_name, zlog_tp_dev.device_name, cdev->ic_tpinfo.firmware_ver);
+	if (cdev->tp_chip_id == TS_CHIP_OMNIVISION) {
+		snprintf(cdev->ztp_zlog_buffer + len, ZLOG_INFO_LEN - len, " IC name: %s, module name:%s, Firmware version: %d",
+			zlog_tp_dev.ic_name, zlog_tp_dev.device_name, cdev->ic_tpinfo.firmware_ver);
+	} else {
+		snprintf(cdev->ztp_zlog_buffer + len, ZLOG_INFO_LEN - len, " IC name: %s, module name:%s, Firmware version: 0x%x",
+			zlog_tp_dev.ic_name, zlog_tp_dev.device_name, cdev->ic_tpinfo.firmware_ver);
+	}
 	switch (error_no) {
 	case TP_I2C_R_ERROR_NO:
 		if ((tpd_zlog_check(error_no) < 0) || (after_reset_time < 200))
@@ -2101,7 +2575,7 @@ void tpd_zlog_record_notify(tp_error_no error_no)
 			cdev->zlog_item.count[error_no], cdev->ztp_zlog_buffer);
 		zlog_client_record(cdev->zlog_client, "tpd request firmware upgrade err,count:%d.\n %s\n",
 			cdev->zlog_item.count[error_no], cdev->ztp_zlog_buffer);
-		zlog_client_notify(cdev->zlog_client,  ZLOG_TP_FW_UPGRADE_ERROR_NO);
+		zlog_client_notify(cdev->zlog_client,  ZLOG_TP_REQUEST_FIRMWARE_ERROR_NO);
 		break;
 	case TP_ESD_CHECK_ERROR_NO:
 		if (tpd_zlog_check(error_no) < 0)
@@ -2136,9 +2610,18 @@ void tpd_zlog_record_notify(tp_error_no error_no)
 			cdev->zlog_item.count[error_no], cdev->ztp_zlog_buffer);
 		zlog_client_notify(cdev->zlog_client,  ZLOG_TP_GHOST_ERROR_NO);
 		break;
+	case TP_SELF_TEST_ERROR_NO:
+		cdev->zlog_item.count[error_no]++;
+		TPD_DMESG("tpd self test err,count:%d\n", cdev->zlog_item.count[error_no]);
+		break;
+	case TP_GET_NOISE_ERROR_NO:
+		cdev->zlog_item.count[error_no]++;
+		TPD_DMESG("tpd get noise data err,count:%d\n", cdev->zlog_item.count[error_no]);
+		break;
 	default:
 		break;
 	}
+	tpd_get_last_log();
 	memset(cdev->ztp_zlog_buffer, 0, ZLOG_INFO_LEN);
 }
 
@@ -2154,7 +2637,7 @@ void zlog_register_work_init(void)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s enter", __func__);
+	TPD_DMESG("enter");
 	INIT_DELAYED_WORK(&cdev->zlog_register_work, zlog_register_work);
 
 }
@@ -2163,7 +2646,7 @@ void zlog_register_work_deinit(void)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s enter", __func__);
+	TPD_DMESG("enter");
 	cancel_delayed_work_sync(&cdev->zlog_register_work);
 	vfree(cdev->ztp_zlog_buffer);
 	cdev->ztp_zlog_buffer = NULL;
@@ -2176,7 +2659,6 @@ void tpd_zlog_init(void)
 
 	cdev->ztp_zlog_buffer = NULL;
 	cdev->zlog_regisered = false;
-	cdev->ztp_probe_fail_chip_id = 0xFF;
 	cdev->tp_reset_timer = jiffies;
 	for (i = 0; i < TP_ERROR_NO_MAX; i++) {
 		cdev->zlog_item.timer[i] = jiffies;
@@ -2187,6 +2669,11 @@ void tpd_zlog_record_notify(tp_error_no error_no)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
+	if (error_no >= TP_ERROR_NO_MAX) {
+		TPD_DMESG("error_no is to large.\n");
+		return;
+	}
+	tpd_get_last_log();
 	cdev->zlog_item.count[error_no]++;
 	switch (error_no) {
 	case TP_I2C_R_ERROR_NO:
@@ -2222,6 +2709,12 @@ void tpd_zlog_record_notify(tp_error_no error_no)
 	case TP_GHOST_ERROR_NO:
 		TPD_DMESG("tpd ghost err,count:%d\n", cdev->zlog_item.count[error_no]);
 		break;
+	case TP_SELF_TEST_ERROR_NO:
+		TPD_DMESG("tpd self test err,count:%d\n", cdev->zlog_item.count[error_no]);
+		break;
+	case TP_GET_NOISE_ERROR_NO:
+		TPD_DMESG("tpd get noise data err,count:%d\n", cdev->zlog_item.count[error_no]);
+		break;
 	default:
 		break;
 	}
@@ -2254,6 +2747,11 @@ static void tpd_charger_detect_work(struct work_struct *work)
 	struct ztp_device *cdev = tpd_cdev;
 
 	cdev->charger_mode = tpd_get_charger_ststus();
+
+	if (!cdev->TP_have_registered) {
+		return;
+	}
+
 	if(cdev->charger_state_notify)
 		cdev->charger_state_notify(cdev);
 }
@@ -2293,7 +2791,7 @@ void tpd_charger_work_init(void)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s enter", __func__);
+	TPD_DMESG("enter");
 	INIT_DELAYED_WORK(&cdev->charger_work, tpd_charger_detect_work);
 	tpd_init_charger_notifier();
 }
@@ -2302,7 +2800,7 @@ void tpd_charger_work_deinit(void)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s enter", __func__);
+	TPD_DMESG("enter");
 	cancel_delayed_work_sync(&cdev->charger_work);
 	power_supply_unreg_notifier(&cdev->charger_notifier);
 }
@@ -2319,8 +2817,8 @@ static void tp_ghost_check_work(struct work_struct *work)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	if (tp_ghost_check()){
-		TPD_DMESG("%s may be ghost point", __func__);
+	if (tp_ghost_check()) {
+		TPD_DMESG("may be ghost point");
 	}
 	ghost_check_reset();
 	cdev->start_ghost_check_timer = false;
@@ -2331,7 +2829,7 @@ int tpd_workqueue_init(void)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s enter", __func__);
+	TPD_DMESG("enter");
 	cdev->tpd_wq = create_singlethread_workqueue("tpd_wq");
 
 	if (!cdev->tpd_wq) {
@@ -2354,7 +2852,7 @@ err_tpd_report_work_init_failed:
 		destroy_workqueue(cdev->tpd_wq);
 	}
 err_create_tpd_report_wq_failed:
-	TPD_DMESG("%s: create tpd workqueue failed\n", __func__);
+	TPD_DMESG("create tpd workqueue failed\n");
 	return -ENOMEM;
 }
 
@@ -2362,7 +2860,7 @@ void tpd_workqueue_deinit(void)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s enter", __func__);
+	TPD_DMESG("enter");
 	tpd_report_work_deinit();
 	tpd_resume_work_deinit();
 	tpd_probe_work_deinit();
@@ -2377,7 +2875,7 @@ static void  zte_touch_deinit(void)
 	struct ztp_device *cdev = tpd_cdev;
 
 	if (cdev == NULL || ztp_release) {
-		TPD_DMESG("zte touch deinit, return\n", __func__, __LINE__);
+		TPD_DMESG("zte touch deinit, return\n");
 		return;
 	}
 #ifdef CONFIG_TOUCHSCREEN_UFP_MAC
@@ -2393,6 +2891,7 @@ static void  zte_touch_deinit(void)
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	zlog_register_work_deinit();
 #endif
+	wakeup_source_unregister(tp_wakeup);
 	ztp_release = true;
 }
 
@@ -2400,7 +2899,7 @@ static int zte_touch_probe(struct platform_device *pdev)
 {
 	struct ztp_device *ztp_dev = NULL;
 
-	TPD_DMESG("enter %s, %d\n", __func__, __LINE__);
+	TPD_DMESG("enter");
 
 	ztp_dev = devm_kzalloc(&pdev->dev, sizeof(struct ztp_device), GFP_KERNEL);
 	if (!ztp_dev) {
@@ -2434,13 +2933,29 @@ static int zte_touch_probe(struct platform_device *pdev)
 	tpd_zlog_init();
 	queue_delayed_work(ztp_dev->tpd_wq, &ztp_dev->zlog_register_work, msecs_to_jiffies(3000));
 #endif
-	TPD_DMESG("end %s, %d\n", __func__, __LINE__);
+	tpd_last_log_init();
+	tp_wakeup = wakeup_source_register(&ztp_dev->pdev->dev, "ztp wakelock");
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	init_completion(&ztp_dev->diffdata_collect_completion);
+#endif
+
+	ztp_dev->ztp_probe_fail_chip_id = TS_CHIP_MAX;
+	ztp_dev->fw_ready = false;
+
+	init_completion(&ztp_dev->ztp_pm_completion);
+	ztp_dev->ztp_pm_suspend = false;
+
+	init_completion(&ztp_dev->bbat_test_completion);
+	ztp_dev->bbat_test_enter = false;
+	init_completion(&ztp_dev->tp_event_completion);
+	time64_to_tm(ktime_get_real_seconds(), 0, &ztp_dev->probe_time);
+	TPD_DMESG("end\n");
 	return 0;
 }
 
 static int  zte_touch_remove(struct platform_device *pdev)
 {
-	TPD_DMESG("end %s, %d\n", __func__, __LINE__);
+	TPD_DMESG("enter\n");
 	zte_touch_deinit();
 	return 0;
 }
@@ -2449,7 +2964,7 @@ static void zte_touch_shutdown(struct platform_device *pdev)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("end %s, %d\n", __func__, __LINE__);
+	TPD_DMESG("enter\n");
 	if (cdev->tpd_shutdown)
 		cdev->tpd_shutdown(cdev);
 	tpd_workqueue_deinit();
@@ -2463,6 +2978,31 @@ static const struct of_device_id zte_touch_of_match[] = {
 	{ },
 };
 
+static int zte_touch_pm_suspend(struct device *dev)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	TPD_DMESG("system enters into pm_suspend");
+	cdev->ztp_pm_suspend = true;
+	reinit_completion(&cdev->ztp_pm_completion);
+	return 0;
+}
+
+static int zte_touch_pm_resume(struct device *dev)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	TPD_DMESG("system resumes from pm_suspend");
+	cdev->ztp_pm_suspend = false;
+	complete(&cdev->ztp_pm_completion);
+	return 0;
+}
+
+static const struct dev_pm_ops zte_touch_pm_ops = {
+	.suspend = zte_touch_pm_suspend,
+	.resume = zte_touch_pm_resume,
+};
+
 static struct platform_driver zte_touch_device_driver = {
 	.probe		= zte_touch_probe,
 	.remove		= zte_touch_remove,
@@ -2471,12 +3011,13 @@ static struct platform_driver zte_touch_device_driver = {
 		.name	= "zte_tp",
 		.owner	= THIS_MODULE,
 		.of_match_table = zte_touch_of_match,
+		.pm = &zte_touch_pm_ops,
 	}
 };
 
 int __init zte_touch_init(void)
 {
-	TPD_DMESG("%s into\n", __func__);
+	TPD_DMESG("enter 2024-4-8\n");
 
 	return platform_driver_register(&zte_touch_device_driver);
 }
@@ -2515,6 +3056,10 @@ static void __exit zte_touch_exit(void)
 	if (tpd_cdev->tp_chip_id == TS_CHIP_CHIPONE)
 		cts_driver_exit();
 #endif
+#ifdef CONFIG_TOUCHSCREEN_CHIPONE_PAD
+	if (tpd_cdev->tp_chip_id == TS_CHIP_CHIPONE)
+		cts_driver_exit();
+#endif
 #if defined(CONFIG_TOUCHSCREEN_FTS_V3_3) || defined(CONFIG_TOUCHSCREEN_FTS_UFP)
 	if (tpd_cdev->tp_chip_id == TS_CHIP_FOCAL)
 		fts_ts_exit();
@@ -2543,8 +3088,9 @@ if (tpd_cdev->tp_chip_id == TS_CHIP_FOCAL)
 	if (tpd_cdev->tp_chip_id == TS_CHIP_SITRONIX)
 		sitronix_ts_exit();
 #endif
-#ifdef CONFIG_TOUCHSCREEN_HIMAX_CHIPSET_V3_3
-	himax_common_exit();
+#ifdef CONFIG_TOUCHSCREEN_AXS
+	if (tpd_cdev->tp_chip_id == TS_CHIP_ASX)
+		axs_ts_exit();
 #endif
 #ifdef CONFIG_TOUCHSCREEN_LCD_NOTIFY
 		lcd_notify_unregister();

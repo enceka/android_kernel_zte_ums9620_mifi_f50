@@ -5,7 +5,14 @@
 #define SITRONIX_INTERFACE_SPI
 /* #define SITRONIX_TP_WITH_FLASH */
 #define ST_UPGRADE_USE_REQUESTFW_BUF
+#define SITRONIX_DEFAULT_FIRMWARE        "sitronix_6_517_default_firmware"
 #define SITRONIX_MONITOR_THREAD
+#define STP_X_CHS  18
+#define STP_Y_CHS  32
+#define STP_N_CHS   4
+#define ST_DEFAULT_RES_X		720
+#define ST_DEFAULT_RES_Y		1600
+#define ST_DEFAULT_MAX_TOUCH	10
 
 #define STS_REPORT_BY_ZTE_ALGO
 

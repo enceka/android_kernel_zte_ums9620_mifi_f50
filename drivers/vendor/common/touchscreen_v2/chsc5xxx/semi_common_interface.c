@@ -347,6 +347,7 @@ void semi_tpd_register_fw_class(struct sm_touch_dev *st_dev)
 #endif
 	tpd_cdev->max_x = SEMI_TOUCH_SOLUTION_X;
 	tpd_cdev->max_y = SEMI_TOUCH_SOLUTION_Y;
+	tpd_cdev->input = st_dev.input;
 	tpd_cdev->tp_report_rate = 1;
 #ifdef CONFIG_TOUCHSCREEN_UFP_MAC
 	tpd_cdev->get_singletap = tpd_get_singlefpgesture;

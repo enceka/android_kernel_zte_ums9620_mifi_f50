@@ -46,8 +46,6 @@ void gcore_suspend(void)
 #endif
 #ifdef CONFIG_ENABLE_GESTURE_WAKEUP
 	if (gdev->gesture_wakeup_en) {
-		/* gcore_idm_enter_gesture_mode(); */
-		gcore_fw_event_notify(FW_GESTURE_ENABLE);
 		enable_irq_wake(gdev->touch_irq);
 		msleep(20);
 		gdev->ts_stat = TS_SUSPEND;
@@ -142,12 +140,12 @@ int gcore_touch_driver_init(void)
 	time_after_fw_upgrade = 0;
 	if (get_tp_chip_id() == 0) {
 		if ((tpd_cdev->tp_chip_id != TS_CHIP_MAX) && (tpd_cdev->tp_chip_id != TS_CHIP_GCORE)) {
-			GTP_ERROR("this tp is not used,return.\n");
+			GTP_ERROR("this tp is not used,return.");
 			return -EPERM;
 		}
 	}
 	if (tpd_cdev->TP_have_registered) {
-		GTP_ERROR("TP have registered by other TP.\n");
+		GTP_ERROR("TP have registered by other TP.");
 		return -EPERM;
 	}
 	if (gcore_touch_bus_init()) {

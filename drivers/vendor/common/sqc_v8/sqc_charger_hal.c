@@ -829,7 +829,7 @@ static int sqc_hal_usb_vbat_get(int chg_pos, unsigned int *mV)
 	return retval;
 }
 
-static int sqc_hal_powerpath_set(int chg_pos, int enabled)
+static int sqc_hal_powerpath_set(int chg_pos, unsigned int enabled)
 {
 	struct sqc_pmic_chg_ops *pmic_ops = NULL;
 	int i = 0, retval = 0;
@@ -847,7 +847,7 @@ static int sqc_hal_powerpath_set(int chg_pos, int enabled)
 	return retval;
 }
 
-static int sqc_hal_powerpath_get(int chg_pos, int *enabled)
+static int sqc_hal_powerpath_get(int chg_pos, unsigned int *enabled)
 {
 	struct sqc_pmic_chg_ops *pmic_ops = NULL;
 	int i = 0, retval = 0;
@@ -865,7 +865,7 @@ static int sqc_hal_powerpath_get(int chg_pos, int *enabled)
 	return retval;
 }
 
-static int sqc_hal_hiz_set(int chg_pos, int enabled)
+static int sqc_hal_hiz_set(int chg_pos, unsigned int enabled)
 {
 	struct sqc_pmic_chg_ops *pmic_ops = NULL;
 	int i = 0, retval = 0;
@@ -883,7 +883,7 @@ static int sqc_hal_hiz_set(int chg_pos, int enabled)
 	return retval;
 }
 
-static int sqc_hal_hiz_get(int chg_pos, int *enabled)
+static int sqc_hal_hiz_get(int chg_pos, unsigned int *enabled)
 {
 	struct sqc_pmic_chg_ops *pmic_ops = NULL;
 	int i = 0, retval = 0;

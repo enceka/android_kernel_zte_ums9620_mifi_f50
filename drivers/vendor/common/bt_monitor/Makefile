@@ -1,1 +1,1 @@
-obj-y += bt_monitor.o
+#obj-y += bt_monitor.o

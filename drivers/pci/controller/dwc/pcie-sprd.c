@@ -280,7 +280,7 @@ static int sprd_add_pcie_port(struct dw_pcie *pci, struct platform_device *pdev)
 	ret = devm_request_threaded_irq(dev, ctrl->wakeup_irq,
 					sprd_pcie_wakeup_irq,
 					sprd_pcie_wakeup_thread_irq,
-					IRQF_TRIGGER_RISING | IRQF_NO_SUSPEND,
+					IRQF_TRIGGER_FALLING | IRQF_NO_SUSPEND,
 					ctrl->wakeup_label, ctrl);
 	if (ret < 0)
 		dev_warn(dev, "cannot request wakeup irq\n");
@@ -411,7 +411,25 @@ static int sprd_pcie_host_shutdown(struct platform_device *pdev)
 	return ret;
 }
 
+static int sprd_pcie_link_up(struct dw_pcie *pci)
+{
+	u16 val;
+	int ret;
+
+	val = readw(pci->dbi_base + PCIE_PORT_DEBUG1);
+	ret = (val & PCIE_PORT_DEBUG1_LINK_UP);
+
+	val = readw(pci->dbi_base + SPRD_PCI_EXP_CAP  + PCI_EXP_LNKSTA);
+	ret = (ret && (val & PCI_EXP_LNKSTA_DLLLA));
+
+	if (!ret)
+		dev_err(pci->dev, "link status don't ready!\n");
+
+	return ret;
+}
+
 static const struct dw_pcie_ops dw_pcie_ops = {
+	.link_up = sprd_pcie_link_up,
 };
 
 static int sprd_pcie_host_reinit(struct platform_device *pdev)

@@ -1949,6 +1949,12 @@ int cts_irq_handler(struct cts_device *cts_dev)
 {
 	int ret;
 
+#ifdef CFG_CTS_POINT_CHECK_SUM
+	int i;
+	u8 *data;
+	u8 check_sum = 0;
+#endif
+
 	cts_dbg("Enter IRQ handler");
 
 	if (cts_dev->rtdata.program_mode) {
@@ -2016,6 +2022,25 @@ int cts_irq_handler(struct cts_device *cts_dev)
 
 		cts_dbg("Touch info: vkey_state %x, num_msg %u",
 			touch_info->vkey_state, touch_info->num_msg);
+
+#ifdef CFG_CTS_POINT_CHECK_SUM
+		//for POINT check sum
+		data = &touch_info->vkey_state;
+		for (i = 0; i < 72; i++) {//10 point,72 byte point info
+			check_sum += data[i];
+		}
+
+		if(((data[72] + data[73]) == 255) &&
+			(check_sum == data[72])){
+			cts_dbg("point check sum success,check sum = %d, data[72] = %d",
+				check_sum, data[72]);
+		}
+		else{
+			cts_err("point check sum fail,check sum = %d, touch_info->check_sum_data = %d",
+				check_sum, touch_info->check_sum_data);
+			return -ENODEV;
+		}
+#endif
 
 		ret = cts_plat_process_touch_msg(cts_dev->pdata,
 			touch_info->msgs, touch_info->num_msg);
@@ -2876,9 +2901,7 @@ static void cts_esd_protection_work(struct work_struct *work)
 		/*reset chip next time*/
 		if ((cts_data->esd_check_fail_cnt % 2) == 0) {
 			cts_err("ESD protection read normal mode failed, reset chip!");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
 			ret = cts_plat_reset_device(cts_data->pdata);
 			if (ret) {
 				cts_err("ESD protection reset chip failed %d(%s)",
@@ -3524,10 +3547,8 @@ void cts_firmware_upgrade_work(struct work_struct *work)
 			break;
 		}
 	} while (++retries < 3);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	if (retries >= 3)
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 	cts_release_firmware(firmware);
 
 	if (ret == 0) {

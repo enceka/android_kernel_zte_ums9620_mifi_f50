@@ -240,12 +240,21 @@ static ssize_t sqc_pd_write(struct file *filp, const char __user *buf,
 		break;
 	case SQC_IFS_PTL_PD_APDO:
 		if (count != (sizeof(type) + sizeof(mV) + sizeof(mA))) {
+			pr_err("%s SQC_IFS_PTL_PD_APDO size error, count %d\n", __func__, count);
 			retval = -ENXIO;
 			break;
 		}
+
 		type = handle_buf[0];
 		mV = handle_buf[1];
 		mA = handle_buf[2];
+
+		if ((type < 0) || (mV < 0) || (mA < 0)) {
+			pr_err("%s pd req val check failed, type:%d, mV:%d, mA:%d\n", __func__, type, mV, mA);
+			retval = -EINVAL;
+			break;
+		}
+
 		retval = sqc_hal_pd_set_apdo_cap(type, mV, mA);
 		break;
 	default:

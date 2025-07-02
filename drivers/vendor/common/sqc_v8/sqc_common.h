@@ -12,6 +12,7 @@
 #define SQC_PMIC_TYPE_CP21		BIT(3)
 #define SQC_PMIC_TYPE_CP41		BIT(4)
 #define SQC_PMIC_TYPE_CP42		BIT(5)
+#define SQC_PMIC_TYPE_BUCK_5A	BIT(6)
 
 enum sqc_msg_status {
 	SQC_ADAPTER_OK = 0,
@@ -208,8 +209,8 @@ struct sqc_bc1d2_proto_ops {
 
 	int (*status_init)(void);
 	int (*status_remove)(void);
-	int (*get_charger_type)(int *chg_type);
-	int (*set_charger_type)(int chg_type);
+	int (*get_charger_type)(unsigned int *chg_type);
+	int (*set_charger_type)(unsigned int chg_type);
 	int (*get_protocol_status)(unsigned int *status);
 	int (*get_chip_vendor_id)(unsigned int *vendor_id);
 	int (*set_qc3d0_dp)(unsigned int dp_cnt);
@@ -283,8 +284,8 @@ struct sqc_pmic_chg_ops {
 	int (*usb_vbus_get)(void *arg, unsigned int *mV);
 
 	/*other*/
-	int (*enable_path_set)(void *arg, int enabled);
-	int (*enable_path_get)(void *arg, int *enabled);
+	int (*enable_path_set)(void *arg, unsigned int enabled);
+	int (*enable_path_get)(void *arg, unsigned int *enabled);
 	int (*enable_hiz_set)(void *arg, unsigned int enable);
 	int (*enable_hiz_get)(void *arg, unsigned int *enable);
 };

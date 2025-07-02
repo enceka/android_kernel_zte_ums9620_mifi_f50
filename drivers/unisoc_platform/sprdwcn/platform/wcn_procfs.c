@@ -39,6 +39,12 @@
 #include "../include/wcn_dbg.h"
 #include "../sdio/sdiohal.h"
 
+#ifdef pr_fmt
+#undef pr_fmt
+#endif
+
+#define pr_fmt(fmt) "WCN BASE: " fmt
+
 u32 wcn_print_level = WCN_DEBUG_OFF;
 
 static u32 g_dumpmem_switch =  1;
@@ -75,6 +81,7 @@ struct mdbg_proc_t {
 	int fail_count;
 	int assert_notify_flag;
 	bool loopcheck_flag;
+	bool marlin_powerdown_flag;
 
 	/*see device_lock*/
 	struct async_assert_t async_assert;
@@ -100,6 +107,7 @@ EXPORT_SYMBOL_GPL(mdbg_device_unlock_notify);
 void wcn_reset_process(void)
 {
 	WCN_INFO("%s reset begin\n", __func__);
+	sprdwcn_bus_set_carddump_status(true);
 	wcn_reset_cp2();
 	mdbg_proc->assert_notify_flag = 0;
 	dump_cnt = 0;
@@ -137,7 +145,7 @@ void wcn_dump_process(enum wcn_source_type type)
 	if (g_match_config && g_match_config->unisoc_wcn_integrated)
 		mdbg_dump_mem_integ(type);
 	else
-		mdbg_dump_mem();
+		mdbg_dump_mem(type);
 
 	WCN_INFO("%s dumpmem end\n", __func__);
 }
@@ -148,9 +156,16 @@ bool wcn_is_assert(void)
 }
 EXPORT_SYMBOL_GPL(wcn_is_assert);
 
+void wcn_set_powerdown_flag(bool flag)
+{
+	mdbg_proc->marlin_powerdown_flag = flag;
+}
+EXPORT_SYMBOL_GPL(wcn_set_powerdown_flag);
+
 void __wcn_assert_interface(enum wcn_source_type type, char *str)
 {
 	int reset_prop = wcn_sysfs_get_reset_prop();
+	struct wcn_match_data *g_match_config = get_wcn_match_config();
 
 	WCN_INFO("wcn_assert_interface %d\n", reset_prop);
 	WCN_ERR("wcn_source_type:%d\n", type);
@@ -166,6 +181,13 @@ void __wcn_assert_interface(enum wcn_source_type type, char *str)
 	if (!marlin_get_power()) {
 		WCN_INFO("no modules open\n");
 		goto out;
+	}
+
+	if (!(g_match_config && g_match_config->unisoc_wcn_integrated)) {
+		if (mdbg_proc->marlin_powerdown_flag) {
+			WCN_ERR("fw assert hanppend in WCN Powerdown!!\n");
+			return;
+		}
 	}
 
 	if (!mdbg_proc->assert_notify_flag) {
@@ -914,6 +936,7 @@ static ssize_t mdbg_proc_write(struct file *filp,
 			strncmp(mdbg_proc->write_buf, "rebootmarlin", 12) == 0) {
 			WCN_INFO("marlin gnss need reset\n");
 			WCN_INFO("fail_count is value %d\n", mdbg_proc->fail_count);
+			stop_loopcheck();
 			mdbg_proc->fail_count = 0;
 			sprdwcn_bus_set_carddump_status(false);
 			wcn_reset_cp2();
@@ -927,7 +950,7 @@ static ssize_t mdbg_proc_write(struct file *filp,
 			mutex_lock(&mdbg_proc->mutex);
 			marlin_set_sleep(MARLIN_MDBG, FALSE);
 			marlin_set_wakeup(MARLIN_MDBG);
-			mdbg_dump_mem();
+			mdbg_dump_mem(WCN_SOURCE_BTWF);
 			marlin_set_sleep(MARLIN_MDBG, TRUE);
 			mutex_unlock(&mdbg_proc->mutex);
 			return count;
@@ -943,23 +966,27 @@ static ssize_t mdbg_proc_write(struct file *filp,
 			WCN_INFO("marlin need reset\n");
 			WCN_INFO("fail_count is value %d\n", mdbg_proc->fail_count);
 			WCN_INFO("fail_reset is value %d\n", flag_reset);
+			stop_loopcheck();
 			mdbg_proc->fail_count = 0;
 			marlin_set_download_status(0);
 			sprdwcn_bus_set_carddump_status(false);
 			marlin_chip_en(false, true);
 			if (marlin_reset_func != NULL)
 				marlin_reset_func(marlin_callback_para);
+			flag_reset = 0;
 			return count;
 		}
 		if (strncmp(mdbg_proc->write_buf, "rebootwcn", 9) == 0) {
 			flag_reset = 1;
 			WCN_INFO("marlin gnss need reset\n");
 			WCN_INFO("fail_count is value %d\n", mdbg_proc->fail_count);
+			stop_loopcheck();
 			mdbg_proc->fail_count = 0;
 			marlin_set_download_status(0);
 			sprdwcn_bus_set_carddump_status(false);
 			marlin_chip_en(false, true);
 			wcn_reset_cp2();
+			flag_reset = 0;
 			return count;
 		}
 		if (strncmp(mdbg_proc->write_buf, "at+getchipversion", 17) == 0) {

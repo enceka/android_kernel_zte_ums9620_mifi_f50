@@ -37,7 +37,7 @@ static int mdbg_log_cb(int channel, struct mbuf_t *head,
 	struct mbuf_t *mbuf_node;
 	int i;
 	/* type=0x98:trace log, type=0x9D:DSP log */
-	WCN_INFO("%s:type=0x%x,seq=0x%x, num=%d\n", __func__,
+	pr_info_ratelimited(": %s:type=0x%x,seq=0x%x, num=%d\n", __func__,
 		 *(head->buf + 7), *((u32 *)(head->buf + 12)), num);
 
 	if ((atomic_read(&ring_reg_flag)) == 0) {
@@ -189,6 +189,7 @@ static long int mdbg_comm_write(char *buf,
 	struct mbuf_t *head = NULL;
 	struct mbuf_t *tail = NULL;
 	int num = 1;
+	int ret;
 	size_t rsvlen;
 	struct mchn_ops_t *p_mdbg_proc_ops = get_mdbg_proc_op();
 	struct wcn_match_data *g_match_config = get_wcn_match_config();
@@ -217,8 +218,6 @@ static long int mdbg_comm_write(char *buf,
 				     SMP_HEAD_STR);
 
 	if (str) {
-		int ret;
-
 		/* for arm log to pc */
 		WCN_INFO("smp len:%lu,str:%s\n", len, str);
 		str[sizeof(SMP_HEAD_STR)] = 0;
@@ -234,7 +233,11 @@ static long int mdbg_comm_write(char *buf,
 			head->buf = send_buf;
 			head->len = len;
 			head->next = NULL;
-			sprdwcn_bus_push_list(
+			ret = sprdwcn_bus_push_list(
+				p_mdbg_proc_ops[MDBG_AT_TX_OPS].channel,
+				head, tail, num);
+			if (ret != 0 && g_match_config && !g_match_config->unisoc_wcn_pcie)
+				sprdwcn_bus_list_free(
 				p_mdbg_proc_ops[MDBG_AT_TX_OPS].channel,
 				head, tail, num);
 		}

@@ -237,7 +237,7 @@ static void zte_log_bootreason(void)
 	else
 		bootreason = ZLOG_BOOT_REASON_UNKNOWN;
 
-	if (ZLOG_BOOT_REASON_REBOOT != bootreason || ZLOG_BOOT_REASON_LONG_POWKEY != bootreason) {
+	if (ZLOG_BOOT_REASON_REBOOT != bootreason) {
 		zlog_client_record(zlog_bootmode_client, "bootreason=%s\n", boot_reason);
 		zlog_client_notify(zlog_bootmode_client, bootreason);
 	}
@@ -305,10 +305,7 @@ static void zte_log_pwroffreason(void)
 	else
 		pwroffreason = ZLOG_BOOT_PWROFF_REASON_UNKNOWN;
 	if (ZLOG_BOOT_PWROFF_REASON_POWER_KEY != pwroffreason
-			|| ZLOG_BOOT_PWROFF_REASON_UVLO != pwroffreason
-			|| ZLOG_BOOT_PWROFF_REASON_7S != pwroffreason
-			|| ZLOG_BOOT_PWROFF_REASON_WRITE != pwroffreason
-			|| ZLOG_BOOT_PWROFF_REASON_7S_WRITE != pwroffreason) {
+			|| ZLOG_BOOT_PWROFF_REASON_WRITE != pwroffreason) {
 		zlog_client_record(zlog_bootmode_client, "pwroffreason=%s\n", pwroff_reason);
 		zlog_client_notify(zlog_bootmode_client, pwroffreason);
 	}

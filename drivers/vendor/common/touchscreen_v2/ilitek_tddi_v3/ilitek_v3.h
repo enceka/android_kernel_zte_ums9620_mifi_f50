@@ -124,20 +124,20 @@
 #define DEBUG_OUTPUT	DEBUG_NONE
 
 #define ILI_INFO(fmt, arg...)						\
-({									\
-	pr_info("ILITEK[INFO]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
-})									\
-
+	do { \
+		pr_info("[ZTE_LDD_TP][TPD_ILITEK][INFO]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_ILITEK][INFO]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
+	} while (0)
 #define ILI_ERR(fmt, arg...)						\
-({									\
-	pr_err("ILITEK[ERR]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
-})									\
-
+	do { \
+		pr_err("[ZTE_LDD_TP][TPD_ILITEK][ERR]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_ILITEK][ERR]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
+	} while (0)
 extern bool debug_en;
 #define ILI_DBG(fmt, arg...)						\
 do {									\
-	if (debug_en)						\
-	pr_info("ILITEK[DBG]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
+	if (debug_en || tpd_cdev->debug_log_enable)						\
+		pr_info("[ZTE_LDD_TP][TPD_ILITEK][DBG]: (%s, %d): " fmt, __func__, __LINE__, ##arg);	\
 } while (0)
 
 #define ERR_ALLOC_MEM(X)	((IS_ERR(X) || X == NULL) ? 1 : 0)

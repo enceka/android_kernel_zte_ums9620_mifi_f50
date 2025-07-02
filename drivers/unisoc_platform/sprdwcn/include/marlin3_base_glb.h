@@ -194,6 +194,8 @@
 
 #define CGM_GNSS_FAKE_CFG (0x40844200 + 0X0104)
 #define CGM_GNSS_FAKE_SEL 0x3
+#define CGM_GNSS_APB_CFG (0x40844200 + 0X011c)
+#define CGM_GNSS_APB_SEL BIT(0)
 
 /* for sleep/wakeup */
 #define REG_AP_INT_CP0		0x1b0

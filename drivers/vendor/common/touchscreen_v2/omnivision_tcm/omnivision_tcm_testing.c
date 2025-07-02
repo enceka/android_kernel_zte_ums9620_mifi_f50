@@ -246,7 +246,7 @@ static int ovt_tcm_get_thr_from_csvfile(void)
 	/*zte_add*/
 	tcm_hcd->zte_ctrl.rawdata_rows = rows;
 	tcm_hcd->zte_ctrl.rawdata_cols = cols;
-	ovt_info(INFO_LOG, "ovt tcm csv parser: rows: %d, cols: %d file_path:%s", rows, cols, file_path);
+	ovt_info(INFO_LOG, "ovt tcm csv parser: rows: %d, cols: %d\n", rows, cols);
 	ret = ovt_tcm_parse_csvfile(tcm_hcd, CSV_RAW_DATA_MIN_ARRAY,
 			threshold->raw_data_min_limits, rows, cols);
 	if (ret) {
@@ -1573,7 +1573,7 @@ static int testing_do_test_item(enum test_code test_item, int limit_rows, int li
 	retval = 0;	
 
 exit:
-
+	UNLOCK_BUFFER(testing_hcd->resp);
 	if (fp) {
 		ovt_tcm_store_to_file(fp, "\n%s do test item min:%d  max:%d ave:%d\n", __func__, min_data, max_data, ave_data);
 		ovt_tcm_store_to_file(fp, "\n%s do test item %d end, result is %s\n", __func__, test_item, (testing_hcd->result)?"pass":"fail");

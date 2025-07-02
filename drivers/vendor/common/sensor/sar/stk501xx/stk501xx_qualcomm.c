@@ -17,20 +17,46 @@
 #include <linux/pm.h>
 #include <linux/pm_wakeup.h>
 #include <linux/interrupt.h>
+#include <linux/gpio.h>
+#include <asm/uaccess.h>
+
 #ifndef STK_SPREADTRUM
 #ifdef STK_SENSORS_DEV
 #include <linux/sensors.h>
 #endif
 #endif // STK_SPREADTRUM
-#include <linux/gpio.h>
-#include <asm/uaccess.h>
+
 #ifdef CONFIG_OF
-    #include <linux/of_gpio.h>
+#include <linux/of_gpio.h>
 #endif
+
 #include "stk501xx.h"
 #include "stk501xx_qualcomm.h"
 
 struct attribute_group stk_attribute_sar_group;
+
+/* add zte boardtest interface start */
+uint8_t is_sar1_exist = 0;
+#ifdef CONFIG_VENDOR_ZTE_MISC_COMMON
+#include <vendor/common/zte_misc.h>
+
+int is_sar1_exist_get(char *val, const void *arg)
+{
+    return snprintf(val, PAGE_SIZE, "%d", is_sar1_exist);
+}
+
+static struct zte_misc_ops is_sar1_exist_node = {
+    .node_name = "is_sar1_exist",
+    .set = NULL,
+    .get = is_sar1_exist_get,
+    .free = NULL,
+    .arg = NULL,
+};
+#endif
+/* zte boardtest interface end */
+
+struct stk501xx_wrapper *stk501xx_wrapper_ptr;
+static char chip_info[20];
 
 /**
  * @brief: Get power status
@@ -48,6 +74,7 @@ static ssize_t stk_enable_show(struct device *dev,
     stk501xx_wrapper *stk_wrapper = dev_get_drvdata(dev);
     stk_data *stk = &stk_wrapper->stk;
     char en;
+
     en = stk->enabled;
     return scnprintf(buf, PAGE_SIZE, "enable = %d\n", en);
 }
@@ -70,10 +97,9 @@ static ssize_t stk_enable_store(struct device *dev,
     stk_data *stk = &stk_wrapper->stk;
     unsigned int data;
     int error;
-    error = kstrtouint(buf, 10, &data);
 
-    if (error)
-    {
+    error = kstrtouint(buf, 10, &data);
+    if (error) {
         STK_SAR_ERR("kstrtoul failed, error=%d", error);
         return error;
     }
@@ -105,15 +131,14 @@ static ssize_t stk_value_show(struct device *dev,
     uint32_t prox_flag = 0;
     stk501xx_wrapper *stk_wrapper = dev_get_drvdata(dev);
     stk_data *stk = &stk_wrapper->stk;
+
     STK_SAR_ERR("stk_value_show");
 
     //read prox flag
     stk_read_prox_flag(stk, &prox_flag);
-
     stk501xx_read_sar_data(stk, prox_flag);
 
-    for (i = 0; i < 6; i++)
-    {
+    for (i = 0; i < 6; i++) {
         scnprintf(buf, PAGE_SIZE, "ph[%d] value=%d\n", i, stk->last_data[i]);
         STK_SAR_ERR("ph[%d] value=%d\n", i, stk->last_data[i]);
     }
@@ -124,23 +149,20 @@ static ssize_t stk_value_show(struct device *dev,
 static ssize_t stk_flag_show(struct device *dev,
                              struct device_attribute *attr, char *buf)
 {
-    int i = 0;
     uint32_t prox_flag = 0;
     stk501xx_wrapper *stk_wrapper = dev_get_drvdata(dev);
     stk_data *stk = &stk_wrapper->stk;
+
     STK_SAR_ERR("stk_flag_show");
 
     //read prox flag
     stk_read_prox_flag(stk, &prox_flag);
 
-    stk501xx_read_sar_data(stk, prox_flag);
-
-    for ( i = 0; i < 6; i++)
-    {
-        STK_SAR_ERR("ph[%d] prox flag=%d\n", i, stk->last_nearby[i]);
+    if (prox_flag | 0x0000 ){
+        return scnprintf(buf, PAGE_SIZE, "flag is near =%d\n", 1);
+    } else {
+        return scnprintf(buf, PAGE_SIZE, "flag is far =%d\n", 0);
     }
-
-    return scnprintf(buf, PAGE_SIZE, "flag[0]=%d\n", stk->last_nearby[0]);
 }
 
 /**
@@ -168,17 +190,13 @@ static ssize_t stk_send_store(struct device *dev,
         token[i] = strsep((char **)&buf, " ");
 
     err = kstrtouint(token[0], 16, &addr);
-
-    if (err)
-    {
+    if (err) {
         STK_SAR_ERR("kstrtoint failed, err=%d", err);
         return err;
     }
 
     err = kstrtoint(token[1], 32, &cmd);
-
-    if (err)
-    {
+    if (err) {
         STK_SAR_ERR("kstrtoint failed, err=%d", err);
         return err;
     }
@@ -196,14 +214,12 @@ static ssize_t stk_send_store(struct device *dev,
     STK501XX_REG_WRITE_BLOCK(stk, w_addr, w_val, 4);
 #endif // STK_FIX_I2C
 
-    if (STK501XX_REG_WRITE_BLOCK(stk, (u16)addr, (u8*)&cmd, 4))
-    {
+    if (STK501XX_REG_WRITE_BLOCK(stk, (u16)addr, (u8*)&cmd, 4)) {
         err = -1;
         goto exit;
     }
 
 exit:
-
     if (!enable)
         stk501xx_set_enable(stk, 0);
 
@@ -218,8 +234,10 @@ static ssize_t stk_temp_show(struct device *dev,
 {
     stk501xx_wrapper *stk_wrapper = dev_get_drvdata(dev);
     stk_data *stk = &stk_wrapper->stk;
+
     STK_SAR_ERR("stk_temp_show");
     stk501xx_read_temp_data(stk, &stk->temperature_1);
+
     return scnprintf(buf, PAGE_SIZE, "temperature=%d\n", stk->temperature_1);
 }
 
@@ -238,8 +256,8 @@ static ssize_t stk_allreg_show(struct device *dev,
     stk501xx_wrapper *stk_wrapper = dev_get_drvdata(dev);
     stk_data *stk = &stk_wrapper->stk;
     int result;
-    result = stk501xx_show_all_reg(stk);
 
+    result = stk501xx_show_all_reg(stk);
     if (0 > result)
         return result;
 
@@ -260,6 +278,7 @@ static ssize_t stk_chipinfo_show(struct device *dev,
 {
     stk501xx_wrapper *stk_wrapper = dev_get_drvdata(dev);
     stk_data *stk = &stk_wrapper->stk;
+
     STK_SAR_ERR("chip id=0x%x, index=0x%x", stk->chip_id, stk->chip_index);
     return scnprintf(buf, PAGE_SIZE, "pid=0x%x,index=0x%x\n", stk->chip_id, stk->chip_index);
 }
@@ -270,6 +289,7 @@ static ssize_t stk_phase_cali(struct device *dev,
     stk501xx_wrapper *stk_wrapper = dev_get_drvdata(dev);
     int result = 0;
     stk_data *stk = &stk_wrapper->stk;
+
     stk501xx_phase_reset(stk);
     return (ssize_t)result;
 }
@@ -304,14 +324,13 @@ struct attribute_group stk_attribute_sar_group =
 
 static struct stk501xx_platform_data stk_plat_data =
 {
-    .direction              = 1,
     .interrupt_int1_pin     = 117,
+    .phase_use_flag         = 0,
 };
 
 #ifdef STK_SENSORS_DEV
 /* SAR information read by HAL */
-static struct sensors_classdev stk_cdev =
-{
+static struct sensors_classdev stk_cdev = {
     .name = "stk501xx",
     .vendor = "Sensortek",
     .version = 1,
@@ -349,16 +368,11 @@ static int stk_cdev_sensors_enable(struct sensors_classdev *sensors_cdev,
     struct stk501xx_wrapper *stk_wrapper = container_of(sensors_cdev, stk501xx_wrapper, sar_cdev);
     struct stk_data *stk = &stk_wrapper->stk;
 
-    if (0 == enabled)
-    {
+    if (0 == enabled) {
         stk501xx_set_enable(stk, 0);
-    }
-    else if (1 == enabled)
-    {
+    } else if (1 == enabled) {
         stk501xx_set_enable(stk, 1);
-    }
-    else
-    {
+    } else {
         STK_SAR_ERR("Invalid vlaue of input, input=%d", enabled);
         return -EINVAL;
     }
@@ -381,8 +395,10 @@ static int stk_cdev_sensors_poll_delay(struct sensors_classdev *sensors_cdev,
 #elif defined STK_POLLING_MODE
     struct stk501xx_wrapper *stk_wrapper = container_of(sensors_cdev, stk501xx_wrapper, sar_cdev);
     struct stk_data *stk = &stk_wrapper->stk;
+
     stk->stk_timer_info.interval_time = delay_msec * 1000;
 #endif /* STK_INTERRUPT_MODE, STK_POLLING_MODE */
+
     STK_SAR_LOG("stk_cdev_sensors_poll_delay ms=%d", delay_msec);
     return 0;
 }
@@ -400,7 +416,6 @@ static int stk_cdev_sensors_enable_wakeup(struct sensors_classdev *sensors_cdev,
     STK_SAR_LOG("enable=%d", enable);
     return 0;
 }
-
 
 /*
  * @brief: Flush sensor events in FIFO and report it to user space.
@@ -427,24 +442,22 @@ static int stk_cdev_sensors_flush(struct sensors_classdev *sensors_cdev)
 static int stk_input_setup(stk501xx_wrapper *stk_wrapper)
 {
     int err = 0;
+
     /* input device: setup for sar */
     stk_wrapper->input_dev = input_allocate_device();
-
-    if (!stk_wrapper->input_dev)
-    {
+    if (!stk_wrapper->input_dev) {
         STK_SAR_ERR("input_allocate_device for sar failed");
         return -ENOMEM;
     }
 
-    stk_wrapper->input_dev->name = STK501XX_NAME;
+    stk_wrapper->input_dev->name =  "sar_sensor";
     stk_wrapper->input_dev->id.bustype = BUS_I2C;
     input_set_capability(stk_wrapper->input_dev, EV_ABS, ABS_DISTANCE);
     stk_wrapper->input_dev->dev.parent = &stk_wrapper->i2c_mgr.client->dev;
     input_set_drvdata(stk_wrapper->input_dev, stk_wrapper);
-    err = input_register_device(stk_wrapper->input_dev);
 
-    if (err)
-    {
+    err = input_register_device(stk_wrapper->input_dev);
+    if (err) {
         STK_SAR_ERR("Unable to register input device: %s", stk_wrapper->input_dev->name);
         input_free_device(stk_wrapper->input_dev);
         return err;
@@ -466,17 +479,14 @@ static int stk_init_qualcomm(stk501xx_wrapper *stk_wrapper)
 {
     int err = 0;
 
-    if (stk_input_setup(stk_wrapper))
-    {
+    if (stk_input_setup(stk_wrapper)) {
         return -1;
     }
 
     /* sysfs: create file system */
     err = sysfs_create_group(&stk_wrapper->i2c_mgr.client->dev.kobj,
                              &stk_attribute_sar_group);
-
-    if (err)
-    {
+    if (err) {
         STK_SAR_ERR("Fail in sysfs_create_group, err=%d", err);
         goto err_sysfs_creat_group;
     }
@@ -491,13 +501,13 @@ static int stk_init_qualcomm(stk501xx_wrapper *stk_wrapper)
     err = sensors_classdev_register(&stk_wrapper->input_dev->dev, &stk_wrapper->sar_cdev);
 #endif // STK_SENSORS_DEV
 
-    if (err)
-    {
+    if (err) {
         STK_SAR_ERR("Fail in sensors_classdev_register, err=%d", err);
         goto err_sensors_classdev_register;
     }
 
     return 0;
+
 err_sensors_classdev_register:
     sysfs_remove_group(&stk_wrapper->i2c_mgr.client->dev.kobj, &stk_attribute_sar_group);
 err_sysfs_creat_group:
@@ -521,6 +531,7 @@ static void stk_exit_qualcomm(struct stk501xx_wrapper *stk_wrapper)
     input_unregister_device(stk_wrapper->input_dev);
     input_free_device(stk_wrapper->input_dev);
 }
+
 #if defined STK_INTERRUPT_MODE || defined STK_POLLING_MODE
 void stk_report_sar_data(struct stk_data* stk)
 {
@@ -529,24 +540,34 @@ void stk_report_sar_data(struct stk_data* stk)
     u8 is_change = 0;
     u8 nf_flag = 0;
 
-    if (!stk_wrapper->input_dev)
-    {
+    if (!stk_wrapper->input_dev) {
         STK_SAR_ERR("No input device for sar data");
         return;
     }
-    for (i = 0; i < 8; i ++)
-    {
+
+    for (i = 0; i < 8; i ++) {
+        if (((stk->phase_use_flag >> i) & 0x01) == 0) {
+            // STK_SAR_ERR("stk_report_sar_data:: phase %d not used", i);
+            continue;
+        }
+
+        nf_flag = is_change = 0;
         is_change |= stk->state_change[i];
-        STK_SAR_ERR("stk_report_sar_data:: change ph[%d] =%d,(%d)", i, stk->state_change[i], is_change);	
 
-        if (STK_SAR_NEAR_BY == stk->last_nearby[i]) 
-            nf_flag |= (1 << i);
-    }
+        STK_SAR_ERR("stk_report_sar_data:: change ph[%d] =%d,(%d)", i, stk->state_change[i], is_change);
 
-    if(is_change != 0)
-    {
-        input_report_abs(stk_wrapper->input_dev, ABS_DISTANCE, nf_flag);
-        input_sync(stk_wrapper->input_dev);
+        if (STK_SAR_NEAR_BY == stk->last_nearby[i]) {
+            nf_flag = (i + 1);
+        } else if (STK_SAR_FAR_AWAY == stk->last_nearby[i]) {
+            nf_flag = ( i + 1 ) * 10 ;
+        }
+
+        STK_SAR_ERR("stk_report_sar_data:: nf_flag ph[%d] =%d,(%d)", i, stk->last_nearby[i], nf_flag);
+
+        if (is_change != 0) {
+            input_report_abs(stk_wrapper->input_dev, ABS_DISTANCE, nf_flag);
+            input_sync(stk_wrapper->input_dev);
+        }
     }
 }
 #endif
@@ -566,27 +587,28 @@ static int stk_parse_dt(struct device *dev,
                         struct stk501xx_platform_data *pdata)
 {
     struct device_node *np = dev->of_node;
-    const int *p;
-    uint32_t int_flags;
-    p = of_get_property(np, "stk,direction", NULL);
-
-    if (p)
-        pdata->direction = be32_to_cpu(*p);
+    uint32_t int_flags, val;
 
     pdata->interrupt_int1_pin = of_get_named_gpio_flags(np,
                                 "stk501xx,irq-gpio", 0, &int_flags);
-
-    if (pdata->interrupt_int1_pin < 0)
-    {
+    if (pdata->interrupt_int1_pin < 0) {
         STK_SAR_ERR("Unable to read stk501xx,irq-gpio");
 #ifdef STK_INTERRUPT_MODE
         return pdata->interrupt_int1_pin;
-#else /* no STK_INTERRUPT_MODE */
+#else
         return 0;
-#endif /* STK_INTERRUPT_MODE */
+#endif
     }
 
-    return 0; /* SUCCESS */
+    val = of_property_read_u32(np, "stk501xx,phase_use_flag", &pdata->phase_use_flag);
+    if (val != 0) {
+        STK_SAR_ERR("Unable to read stk501xx,phase_use_flag %d", val);
+        pdata->phase_use_flag = 7;
+    } else {
+        STK_SAR_ERR("stk501xx,phase_use_flag = %d", pdata->phase_use_flag);
+    }
+
+    return 0;
 }
 #else
 static int stk_parse_dt(struct device *dev,
@@ -611,35 +633,26 @@ static int get_platform_data(stk501xx_wrapper *stk_wrapper)
     struct i2c_client *client = stk_wrapper->i2c_mgr.client;
     struct stk501xx_platform_data *stk_platdata;
 
-    if (client->dev.of_node)
-    {
+    if (client->dev.of_node) {
         STK_SAR_FUN();
+
         stk_platdata = devm_kzalloc(&client->dev,
                                     sizeof(struct stk501xx_platform_data), GFP_KERNEL);
-
-        if (!stk_platdata)
-        {
+        if (!stk_platdata) {
             STK_SAR_ERR("Failed to allocate memory");
             return -ENOMEM;
         }
 
         err = stk_parse_dt(&client->dev, stk_platdata);
-
-        if (err)
-        {
+        if (err) {
             STK_SAR_ERR("stk_parse_dt err=%d", err);
             return err;
         }
-    }
-    else
-    {
-        if (NULL != client->dev.platform_data)
-        {
+    } else {
+        if (NULL != client->dev.platform_data) {
             STK_SAR_ERR("probe with platform data");
             stk_platdata = client->dev.platform_data;
-        }
-        else
-        {
+        } else {
             STK_SAR_ERR("probe with private platform data");
             stk_platdata = &stk_plat_data;
         }
@@ -649,9 +662,134 @@ static int get_platform_data(stk501xx_wrapper *stk_wrapper)
     stk_wrapper->stk.gpio_info.int_pin = stk_platdata->interrupt_int1_pin;
     STK_SAR_ERR("int_pin=%d", stk_wrapper->stk.gpio_info.int_pin);
 #endif /* STK_INTERRUPT_MODE */
-    //stk->direction = stk_platdata->direction;
+
+    stk_wrapper->stk.phase_use_flag = stk_platdata->phase_use_flag;
     return 0;
 }
+
+static struct class sar_sensor_class = {
+    .name = "sarsensor",
+    .owner = THIS_MODULE,
+};
+
+static ssize_t delay_show(struct class *class,
+        struct class_attribute *attr,
+        char *buf)
+{
+    STK_SAR_ERR("delay_show");
+    return snprintf(buf, 8, "%d\n", 200);
+}
+
+static ssize_t delay_store(struct class *class,
+        struct class_attribute *attr,
+        const char *buf, size_t count)
+{
+    STK_SAR_ERR("delay_store");
+    return count;
+}
+static CLASS_ATTR_RW(delay);
+
+static ssize_t enable_show(struct class *class,
+        struct class_attribute *attr,
+        char *buf)
+{
+    stk_data *stk = &stk501xx_wrapper_ptr->stk;
+    char en;
+
+    en = stk->enabled;
+    STK_SAR_ERR("enable_show in ");
+
+    return scnprintf(buf, PAGE_SIZE, "enable = %d\n", en);
+}
+
+static ssize_t enable_store(struct class *class,
+        struct class_attribute *attr,
+        const char *buf, size_t count)
+{
+    stk_data *stk = &stk501xx_wrapper_ptr->stk;
+    unsigned int data;
+    int error;
+
+    error = kstrtouint(buf, 10, &data);
+    if (error) {
+        STK_SAR_ERR("kstrtoul failed, error=%d", error);
+        return error;
+    }
+
+    STK_SAR_ERR("stk_enable_store, data=%d", data);
+
+    if ((1 == data) || (0 == data))
+        stk501xx_set_enable(stk, data);
+    else
+        STK_SAR_ERR("invalid argument, en=%d", data);
+
+    return count;
+}
+static CLASS_ATTR_RW(enable);
+
+static ssize_t chip_info_show(struct class *class,
+        struct class_attribute *attr,
+        char *buf)
+{
+    STK_SAR_ERR("chip_info_show, chip_info = %s\n", chip_info);
+    return snprintf(buf, 25, "%s", chip_info);
+}
+static CLASS_ATTR_RO(chip_info);
+
+static ssize_t status_show(struct class *class,
+        struct class_attribute *attr,
+        char *buf)
+{
+    int i = 0;
+    uint32_t prox_flag = 0;
+    stk_data *stk = &stk501xx_wrapper_ptr->stk;
+
+    //read prox flag
+    stk_read_prox_flag(stk, &prox_flag);
+    stk501xx_read_sar_data(stk, prox_flag);
+
+    for ( i = 0; i < 8; i++) {
+        STK_SAR_ERR("ph[%d] prox flag=%d", i, stk->last_nearby[i]);
+    }
+
+    STK_SAR_ERR("status_show,status = %d\n", prox_flag);
+    return scnprintf(buf, PAGE_SIZE, "flag=0x%x\n", prox_flag);
+}
+static CLASS_ATTR_RO(status);
+
+static ssize_t batch_show(struct class *class,
+        struct class_attribute *attr,
+        char *buf)
+{
+    STK_SAR_ERR("batch_show sar sensor");
+    return snprintf(buf, 64, "200\n");
+}
+
+static ssize_t batch_store(struct class *class,
+        struct class_attribute *attr,
+        const char *buf, size_t count)
+{
+    STK_SAR_ERR("batch_store sar sensor");
+    return count;
+}
+static CLASS_ATTR_RW(batch);
+
+static ssize_t flush_show(struct class *class,
+        struct class_attribute *attr,
+        char *buf)
+{
+    STK_SAR_ERR("flush_show sar sensor");
+    return snprintf(buf, 64, "0\n");
+}
+
+static ssize_t flush_store(struct class *class,
+        struct class_attribute *attr,
+        const char *buf, size_t count)
+{
+    STK_SAR_ERR("flush_store sar sensor");
+    return count;
+}
+static CLASS_ATTR_RW(flush);
 
 /*
  * @brief: Probe function for i2c_driver.
@@ -668,41 +806,36 @@ int stk_i2c_probe(struct i2c_client *client, struct common_function *common_fn)
     int err = 0;
     stk501xx_wrapper *stk_wrapper;
     struct stk_data *stk;
+
     STK_SAR_LOG("STK_HEADER_VERSION: %s ", STK_HEADER_VERSION);
     STK_SAR_LOG("STK_C_VERSION: %s ", STK_C_VERSION);
     STK_SAR_LOG("STK_DRV_I2C_VERSION: %s ", STK_DRV_I2C_VERSION);
     STK_SAR_LOG("STK_QUALCOMM_VERSION: %s ", STK_QUALCOMM_VERSION);
 
-    if (NULL == client)
-    {
+    if (NULL == client) {
         return -ENOMEM;
-    }
-    else if (!common_fn)
-    {
+    } else if (!common_fn) {
         STK_SAR_ERR("cannot get common function. EXIT");
         return -EIO;
     }
 
-    if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
-    {
+    if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
         err = i2c_get_functionality(client->adapter);
         STK_SAR_ERR("i2c_check_functionality error, functionality=0x%x", err);
         return -EIO;
     }
 
+    snprintf(chip_info, sizeof(chip_info), "%s", "sensortek");
+
     /* kzalloc: allocate memory and set to zero. */
     stk_wrapper = kzalloc(sizeof(stk501xx_wrapper), GFP_KERNEL);
-
-    if (!stk_wrapper)
-    {
+    if (!stk_wrapper) {
         STK_SAR_ERR("memory allocation error");
         return -ENOMEM;
     }
 
     stk = &stk_wrapper->stk;
-
-    if (!stk)
-    {
+    if (!stk) {
         printk(KERN_ERR "%s: failed to allocate stk3a8x_data\n", __func__);
         return -ENOMEM;
     }
@@ -716,32 +849,89 @@ int stk_i2c_probe(struct i2c_client *client, struct common_function *common_fn)
     stk->sar_report_cb = stk_report_sar_data;
     i2c_set_clientdata(client, stk_wrapper);
     mutex_init(&stk_wrapper->i2c_mgr.lock);
-    stk->bus_idx = stk->bops->init(&stk_wrapper->i2c_mgr);
 
-    if (stk->bus_idx < 0)
-    {
+    stk->bus_idx = stk->bops->init(&stk_wrapper->i2c_mgr);
+    if (stk->bus_idx < 0) {
+        err = -ENOMEM;
         goto err_free_mem;
     }
 
-    if (get_platform_data(stk_wrapper))
+    if (get_platform_data(stk_wrapper)){
+        err = -ENOMEM;
         goto err_free_mem;
+    }
 
     err = stk501xx_init_client(stk);
-
-    if (err < 0)
-    {
+    if (err < 0) {
         STK_SAR_ERR("stk501xx_init_client failed\n");
+        err = -ENOMEM;
         goto err_exit;
     }
 
-    if (stk_init_qualcomm(stk_wrapper))
-    {
+    if (stk_init_qualcomm(stk_wrapper)) {
         STK_SAR_ERR("stk_init_qualcomm failed");
+        err = -ENOMEM;
         goto err_exit;
+    }
+
+    /* add boardtest interface start */
+#ifdef CONFIG_VENDOR_ZTE_MISC_COMMON
+    zte_misc_register_callback(&is_sar1_exist_node, NULL);
+#endif
+    /* add boardtest interface end */
+
+    stk501xx_wrapper_ptr = stk_wrapper;
+
+    /*add class sysfs*/
+    err = class_register(&sar_sensor_class);
+    if (err < 0) {
+        STK_SAR_ERR("Create fsys class failed  err = %d", err);
+        return err;
+    }
+
+    /*ZTE add sys common status node*/
+    err = class_create_file(&sar_sensor_class, &class_attr_delay);
+    if (err < 0) {
+        STK_SAR_ERR("Create delay file failed  err = %d", err);
+        goto err_class_creat;
+    }
+
+    err = class_create_file(&sar_sensor_class, &class_attr_enable);
+    if (err < 0) {
+        STK_SAR_ERR("Create enable file failed  err = %d", err);
+        goto err_class_creat;
+    }
+
+    err = class_create_file(&sar_sensor_class, &class_attr_chip_info);
+    if (err < 0) {
+        STK_SAR_ERR("Create chip_info file  err = %d", err);
+        goto err_class_creat;
+    }
+
+    err = class_create_file(&sar_sensor_class, &class_attr_batch);
+    if (err < 0) {
+        STK_SAR_ERR("Create batch file failed  err = %d", err);
+        goto err_class_creat;
+    }
+
+    err = class_create_file(&sar_sensor_class, &class_attr_flush);
+    if (err < 0) {
+        STK_SAR_ERR("Create flush file failed  err = %d", err);
+        goto err_class_creat;
+    }
+
+    err = class_create_file(&sar_sensor_class, &class_attr_status);
+    if (err < 0) {
+        STK_SAR_ERR("Create status file failed  err = %d", err);
+        goto err_class_creat;
     }
 
     STK_SAR_LOG("Success");
     return 0;
+
+err_class_creat:
+    dev_info(&client->dev, "unregister sar_sensor_class.\n");
+    class_unregister(&sar_sensor_class);
 err_exit:
 #ifdef STK_INTERRUPT_MODE
     STK_GPIO_IRQ_REMOVE(stk, &stk->gpio_info);
@@ -752,6 +942,7 @@ err_exit:
     STK_TIMER_REMOVE(stk, &stk->sensing_watchdog_timer_info);
 #endif // STK_SENSING_WATCHDOG
 err_free_mem:
+    STK_SAR_ERR("err_free_mem err = %d", err);
     mutex_destroy(&stk_wrapper->i2c_mgr.lock);
     kfree(stk);
     return err;
@@ -768,6 +959,7 @@ int stk_i2c_remove(struct i2c_client *client)
 {
     stk501xx_wrapper *stk_wrapper = i2c_get_clientdata(client);
     struct stk_data *stk = &stk_wrapper->stk;
+
     stk_exit_qualcomm(stk_wrapper);
 #ifdef STK_INTERRUPT_MODE
     STK_GPIO_IRQ_REMOVE(stk, &stk->gpio_info);
@@ -785,13 +977,13 @@ int stk501xx_suspend(struct device* dev)
     stk501xx_wrapper *stk_wrapper = dev_get_drvdata(dev);
     struct stk_data *stk = &stk_wrapper->stk;
 
-    if (stk->enabled)
-    {
-        stk501xx_set_enable(stk, 0);
-        stk->last_enable = true;
+    if(stk_wrapper != NULL) {
+        if (stk->enabled) {
+            stk501xx_set_enable(stk, 0);
+            stk->last_enable = true;
+        } else
+            stk->last_enable = false;
     }
-    else
-        stk->last_enable = false;
 
     return 0;
 }
@@ -801,10 +993,12 @@ int stk501xx_resume(struct device* dev)
     stk501xx_wrapper *stk_wrapper = dev_get_drvdata(dev);
     struct stk_data *stk = &stk_wrapper->stk;
 
-    if (stk->last_enable)
-        stk501xx_set_enable(stk, 1);
+    if (stk_wrapper != NULL) {
+        if (stk->last_enable)
+            stk501xx_set_enable(stk, 1);
 
-    stk->last_enable = false;
+        stk->last_enable = false;
+    }
     return 0;
 }
 
@@ -829,8 +1023,7 @@ static struct of_device_id stk501xx_match_table[] =
 static int stk501xx_i2c_probe(struct i2c_client* client,
                              const struct i2c_device_id* id)
 {
-    struct common_function common_fn =
-    {
+    struct common_function common_fn = {
         .bops = &stk_i2c_bops,
         .tops = &stk_t_ops,
         .gops = &stk_g_ops,
@@ -885,32 +1078,28 @@ static int stk501xx_i2c_resume(struct device* dev)
     return stk501xx_resume(dev);
 }
 
-static const struct dev_pm_ops stk501xx_pm_ops =
-{
+static const struct dev_pm_ops stk501xx_pm_ops = {
     .suspend = stk501xx_i2c_suspend,
     .resume = stk501xx_i2c_resume,
 };
 #endif /* CONFIG_PM_SLEEP */
 
 #ifdef CONFIG_ACPI
-static const struct acpi_device_id stk501xx_acpi_id[] =
-{
+static const struct acpi_device_id stk501xx_acpi_id[] = {
     {"STK501XX", 0},
     {}
 };
 MODULE_DEVICE_TABLE(acpi, stk501xx_acpi_id);
 #endif /* CONFIG_ACPI */
 
-static const struct i2c_device_id stk501xx_i2c_id[] =
-{
+static const struct i2c_device_id stk501xx_i2c_id[] = {
     {STK501XX_NAME, 0},
     {}
 };
 
 MODULE_DEVICE_TABLE(i2c, stk501xx_i2c_id);
 
-static struct i2c_driver stk501xx_i2c_driver =
-{
+static struct i2c_driver stk501xx_i2c_driver = {
     .probe = stk501xx_i2c_probe,
     .remove = stk501xx_i2c_remove,
     .detect = stk501xx_i2c_detect,

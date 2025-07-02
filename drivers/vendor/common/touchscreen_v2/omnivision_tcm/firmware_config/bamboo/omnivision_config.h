@@ -11,7 +11,7 @@
 #define OVT_TCM_MODULE3_LCD_NAME                   "Unknown"
 
 #define TX_NUM_MAX	36
-#define RX_NUM_MAX	16
+#define RX_NUM_MAX	18
 /*default i2c*/
 #define USE_SPI_BUS
 #ifdef USE_SPI_BUS
@@ -23,6 +23,6 @@
 
 #define OVT_TCM_LCD_OPERATE_TP_RESET
 
-#define OVT_DEFAULT_FW_IMAGE_NAME "ovt_boe_default_firmware.img"
+#define OVT_DEFAULT_FW_IMAGE_NAME "ovt_6_58_default_firmware"
 
 #endif /* _OMNIVISION_CONFIG_H_ */

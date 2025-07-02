@@ -361,6 +361,7 @@ struct cts_device_rtdata {
 #ifdef CONFIG_CTS_TP_PROXIMITY
     bool proximity_status;
     int proximity_num;
+    bool proximity_suspended;
 #endif
 };
 
@@ -500,6 +501,7 @@ struct chipone_ts_data {
     struct delayed_work esd_work;
     bool esd_enabled;
     int esd_check_fail_cnt;
+	int get_touchinfo_fail_cnt;
 #endif
 
 #ifdef CFG_CTS_HEARTBEAT_MECHANISM

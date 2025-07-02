@@ -1712,6 +1712,7 @@ static bool fts_fwupg_need_upgrade(struct fts_upgrade *upg)
 int fts_fwupg_upgrade(struct fts_upgrade *upg)
 {
     int ret = 0;
+    int tp_time = 0;
     bool upgrade_flag = false;
     int upgrade_count = 0;
     u8 ver = 0;
@@ -1721,7 +1722,7 @@ int fts_fwupg_upgrade(struct fts_upgrade *upg)
         FTS_ERROR("upg/upg->func is null");
         return -EINVAL;
     }
-
+    tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
     upgrade_flag = fts_fwupg_need_upgrade(upg);
     FTS_INFO("fw upgrade flag:%d", upgrade_flag);
     do {
@@ -1775,7 +1776,8 @@ int fts_fwupg_upgrade(struct fts_upgrade *upg)
             }
         }
     } while (upgrade_count < 2);
-
+    tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+    TPD_DMESG("tp_time fts fw upgrade time:%d.", tp_time);
     return ret;
 }
 
@@ -1794,10 +1796,8 @@ static void fts_fwupg_auto_upgrade(struct fts_upgrade *upg)
 
     ret = fts_fwupg_upgrade(upg);
     if (ret < 0) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
 	FTS_ERROR("**********tp fw(app/param) upgrade failed**********");
-#endif
     } else {
         FTS_INFO("**********tp fw(app/param) no upgrade/upgrade success**********");
     }
@@ -1837,6 +1837,8 @@ static int fts_fwupg_get_vendorid(struct fts_upgrade *upg, int *vid)
         ret = fts_read_reg(FTS_REG_VENDOR_ID, &vendor_id);
         if (upg->ts_data->ic_info.is_incell)
             ret = fts_read_reg(FTS_REG_MODULE_ID, &module_id);
+        else
+            ret = fts_read_reg(FTS_REG_PANEL_ID, &module_id);
     } else {
         if (upg->func->upgspec_version >= UPGRADE_SPEC_V_1_1) {
             ret = fts_read(&cmd, 1, cfgbuf, FTS_HEADER_LEN);
@@ -1925,12 +1927,21 @@ static int fts_get_fw_file_via_request_firmware(struct fts_upgrade *upg)
         FTS_ERROR("upg/ts_data/dev is null");
         return -EINVAL;
     }
-
+#ifdef FTS_UPGRADE_CHECK_CHIP_ID
+     if (upg->func && upg->func->chip_name) {
+       FTS_INFO("chip_name is :%s", upg->func->chip_name);
+       snprintf(fwname, FILE_NAME_LENGTH, "%s%s_%s.bin",
+			FTS_FW_NAME_PREX_WITH_REQUEST, upg->module_info->vendor_name, upg->func->chip_name);
+    } else {
+        snprintf(fwname, FILE_NAME_LENGTH, "%s%s.bin",
+			 FTS_FW_NAME_PREX_WITH_REQUEST, upg->module_info->vendor_name);
+    }
+#else
 	snprintf(fwname, FILE_NAME_LENGTH, "%s%s.bin",
 			 FTS_FW_NAME_PREX_WITH_REQUEST, upg->module_info->vendor_name);
-
-    ret = request_firmware(&fw, fwname, upg->ts_data->dev);
-
+   
+#endif
+     ret = request_firmware(&fw, fwname, upg->ts_data->dev);
 #ifdef FTS_DEFAULT_FIRMWARE
 	if (ret < 0) {
 		FTS_ERROR("request firmware fail, try request default firmware.");
@@ -2090,9 +2101,7 @@ static void fts_fwupg_work(struct work_struct *work)
     /* get fw */
     ret = fts_fwupg_get_fw_file(upg);
     if (ret < 0) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
         FTS_ERROR("get file fail, can't upgrade");
     } else {
         /* ic init if have */

@@ -617,7 +617,8 @@ static void sipa_receiver_notify_cb(void *priv, enum sipa_hal_evt_type evt,
 			sipa_hal_clr_cfifo_flowctl_enter_inter(SIPA_FIFO_WIFI_UL);
 			sipa_hal_cmn_fifo_stop_recv(ipa->dev,
 						    SIPA_FIFO_WIFI_UL, true);
-			sipa_single_middle_core();
+			// zsw changed, make /sys/class/net/sipa_eth0/queues/rx-0/rps_cpus do not change.
+			// sipa_single_middle_core();
 		}
 
 		if (sipa_hal_check_cmn_fifo_exit_flowctl(SIPA_FIFO_WIFI_UL)) {

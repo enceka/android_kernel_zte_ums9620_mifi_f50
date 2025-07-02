@@ -5,5 +5,8 @@
 
 #include "zte_charger_anthurium.dtsi"
 #include "zte_audio_anthurium.dtsi"
+#include "zte_sar_anthurium.dtsi"
 #include "zte_camera_anthurium.dtsi"
-#include "zte_crypto_anthurium.dtsi"
+&reserved_memory {
+	/delete-node/ dptx_hdcp@fff10000;
+};

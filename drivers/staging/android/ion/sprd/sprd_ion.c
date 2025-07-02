@@ -234,10 +234,14 @@ static struct ion_buffer *get_ion_buffer(int fd, struct dma_buf *dmabuf)
 			       dmabuf);
 			return ERR_PTR(-EBADF);
 		}
-		buffer = dmabuf->priv;
-		dma_buf_put(dmabuf);
+		if (!strcmp(dmabuf->exp_name, "ion_dma_buf")) {
+			buffer = (struct ion_buffer *)dmabuf->priv;
+		} else {
+			pr_err("%s, dmabuf=%p, exp_name: %s\n", __func__, dmabuf, dmabuf->exp_name);
+			return ERR_PTR(-EBADF);
+		}
 	} else {
-		buffer = dmabuf->priv;
+		buffer = (struct ion_buffer *)dmabuf->priv;
 	}
 
 	return buffer;
@@ -247,6 +251,7 @@ int sprd_ion_get_buffer(int fd, struct dma_buf *dmabuf,
 			void **buf, size_t *size)
 {
 	struct ion_buffer *buffer;
+	struct dma_buf *dmabuf_p;
 
 	buffer = get_ion_buffer(fd, dmabuf);
 	if (IS_ERR(buffer))
@@ -254,6 +259,15 @@ int sprd_ion_get_buffer(int fd, struct dma_buf *dmabuf,
 
 	*buf = (void *)buffer;
 	*size = buffer->size;
+	if (fd >= 0) {
+		dmabuf_p = dma_buf_get(fd);
+		if (IS_ERR_OR_NULL(dmabuf_p)) {
+			pr_err("%s, dmabuf_p=%p dma_buf_get error!\n", __func__, dmabuf_p);
+		} else {
+			dma_buf_put(dmabuf_p);
+			dma_buf_put(dmabuf_p);
+		}
+	}
 
 	return 0;
 }
@@ -326,6 +340,7 @@ static long sprd_ion_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 {
 	int ret = 0;
 	struct ion_phy_data data;
+	struct dma_buf *dmabuf;
 
 	if (_IOC_SIZE(cmd) > sizeof(data))
 		return -EINVAL;
@@ -348,6 +363,15 @@ static long sprd_ion_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
 
 		ret = sprd_ion_get_phys_addr(fd, NULL, (unsigned long *)&data.addr,
 			      (size_t *)&data.len);
+		if (fd >= 0) {
+			dmabuf = dma_buf_get(fd);
+			if (IS_ERR_OR_NULL(dmabuf)) {
+				pr_err("%s, dmabuf=%p dma_buf_get error!\n", __func__, dmabuf);
+			} else {
+				dma_buf_put(dmabuf);
+				dma_buf_put(dmabuf);
+			}
+		}
 		break;
 	}
 	default:

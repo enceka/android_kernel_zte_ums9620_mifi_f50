@@ -8,6 +8,7 @@
 #define ST_DUMP_MAX_LEN	0x13000
 #endif
 
+#define FW_SIZE                     (64 * 1024)
 
 #ifdef ST_REPLACE_DUMP_BY_DISPLAY_ID
 unsigned char dump_id_1[3] = {0x80,0xA0,0xFB};

@@ -7,3 +7,40 @@ config ZTE_BOOTREASON
 	default n
 	help
 	  Say Y here, support zte bootreason.
+
+config ZTE_BOARD_STATE
+	tristate "Zte Bootreason"
+	default y
+	help
+	  Say Y here, support zte bootreason.
+
+config ZTE_BEILU_GPIO_CTL
+	tristate "Zte Beilu Gpio Control"
+	default n
+	help
+	  Say Y here, support Beilu Gpio Control.
+
+config ZTE_BEILU_GPIO_CTL_SRC
+	tristate "Zte Beilu Gpio Control src"
+	default n
+	help
+	  Say Y here, support Beilu Gpio Control.
+
+config ZTE_SERIAL_KEYBOARD_DOCK
+	tristate "Zte Serial Keyboard Dock"
+	depends on INPUT
+	---help---
+	  Say Y here if you want to enable dock keyboard.
+
+config ZTE_HDBD_GPIO_CTL
+	tristate "Zte HDBD GPS Gpio Control"
+	default n
+	help
+	  Say Y here, support Beilu Gpio Control.
+
+config ZTE_LDO_LEDS
+	tristate "Zte Ldo Leds Control"
+	default n
+	help
+	  Say Y here, support Zte Ldo Leds Control.
+

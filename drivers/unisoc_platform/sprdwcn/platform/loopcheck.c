@@ -199,6 +199,10 @@ static void loopcheck_work_queue(struct work_struct *work)
 		if ((g_match_config && g_match_config->unisoc_wcn_pcie) && (ret == -1)) {
 			WCN_ERR("pcie is not ok, need to wait!\n");
 			wcn_send_atcmd_unlock();
+		} else if (((g_match_config && g_match_config->unisoc_wcn_sdio) && (ret == -ENODEV)) ||
+				((g_match_config && g_match_config->unisoc_wcn_sipc) && (ret == -E_INVALIDPARA))) {
+			WCN_ERR("wcn in dump or reset status!!, skip loopcheck this time\n");
+			wcn_send_atcmd_unlock();
 		} else {
 			timeleft = wait_for_completion_timeout(&loopcheck.completion, (4 * HZ));
 			wcn_send_atcmd_unlock();

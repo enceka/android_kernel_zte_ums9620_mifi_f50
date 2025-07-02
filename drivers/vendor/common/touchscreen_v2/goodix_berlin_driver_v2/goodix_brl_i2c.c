@@ -85,9 +85,7 @@ static int goodix_i2c_read(struct device *dev, unsigned int reg,
 			ts_err("I2c read failed,dev:%02x,reg:%04x,size:%u",
 			       client->addr, reg, len);
 			r = -EAGAIN;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
-#endif
 			goto read_exit;
 		}
 	}
@@ -150,9 +148,7 @@ static int goodix_i2c_write(struct device *dev, unsigned int reg,
 			ts_err("I2c write failed,dev:%02x,reg:%04x,size:%u",
 				client->addr, reg, len);
 			r = -EAGAIN;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
-#endif
 			goto write_exit;
 		}
 	}

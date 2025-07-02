@@ -24,7 +24,9 @@ struct wcn_sync_info_t {
 	unsigned int mem_pd_wifi_end_addr;
 	unsigned int prj_type;
 	unsigned short tsx_dac_data;
-	unsigned short rsved;
+	/* bit[0]:pcie, bit[1]:sdio, bit[2]:sipc, bit[3];usb */
+	unsigned char push_not_allow;
+	unsigned char rsved;
 } __packed;
 
 struct tsx_data {
@@ -116,5 +118,6 @@ struct marlin_device {
 };
 
 int marlin_avdd18_dcxo_enable(bool enable);
+int wcn_firmware_ready_close(u8 not_allow_map);
 
 #endif

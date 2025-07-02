@@ -174,13 +174,13 @@ static int fb_notifier_callback(struct notifier_block *nb,
 			blank = *(int *)evdata->data;
 			if (blank == FB_BLANK_UNBLANK) {
 				/*cts_driver_resume(cts_data);*//* zte_add */
-				queue_work(cts_data->workqueue, &cts_data->ts_resume_work);/* zte_add */
+				change_tp_state(LCD_ON);//zte_add
 				return NOTIFY_OK;
 			}
 		} else if (action == FB_EARLY_EVENT_BLANK) {
 			blank = *(int *)evdata->data;
 			if (blank == FB_BLANK_POWERDOWN) {
-				cts_driver_suspend(cts_data);
+				change_tp_state(LCD_OFF);
 				return NOTIFY_OK;
 			}
 		}
@@ -544,10 +544,7 @@ err_free_cts_data:
 	kfree(cts_data);
 
 	cts_err("Probe failed %d(%s)", ret, cts_strerror(ret));
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_CHIPONE)
-		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_CHIPONE;
-#endif
+	tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_CHIPONE;
 	return ret;
 }
 

@@ -336,10 +336,7 @@ int semi_touch_resolution_adaption(struct sm_touch_dev *st_dev)
 			break;
 		}
 		kernel_log_d("config checksum mismatch, retry = %d\n", index);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("semi_touch_resolution_adaption config checksum mismatch, retry = %d\n", index);
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 	}
 
 	/* xy switch */

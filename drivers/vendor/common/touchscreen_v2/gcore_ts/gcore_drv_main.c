@@ -564,9 +564,7 @@ s32 gcore_touch_event_handler(struct gcore_dev *gdev)
 
 	checksum = Cal8bitsChecksum(coor_data, DEMO_DATA_SIZE - 1);
 	if (checksum != coor_data[DEMO_DATA_SIZE - 1]) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		GTP_ERROR("checksum error! read:%x cal:%x", coor_data[DEMO_DATA_SIZE - 1], checksum);
 		return -EPERM;
 	}
@@ -774,9 +772,7 @@ void gcore_wdt_recovery_works(struct work_struct *work)
 	GTP_ERROR("WDT timeout recovery ts:%d", gdev->ts_stat);
 	if (!gdev->ts_stat && (!gdev->tp_fw_update) && (!gdev->tp_self_test)) {
 		gdev->tp_esd_check_error = true;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
 	}
 }
 #endif
@@ -1042,10 +1038,7 @@ static s32 gcore_i2c_probe(struct i2c_client *client, const struct i2c_device_id
 	i2c_set_clientdata(client, touch_dev);
 	if (gcore_touch_probe(touch_dev)) {
 		GTP_ERROR("touch registration fail!");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_GCORE)
 		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_GCORE;
-#endif
 		return -EPERM;
 	}
 	gcore_register_fw_class();

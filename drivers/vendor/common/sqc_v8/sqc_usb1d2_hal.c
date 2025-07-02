@@ -59,7 +59,7 @@ static int sqc_hal_bc1d2_status_remove(void)
 	return ret;
 }
 
-static int sqc_hal_bc1d2_set_charger_type(int chg_type)
+static int sqc_hal_bc1d2_set_charger_type(unsigned int chg_type)
 {
 	struct sqc_bc1d2_proto_ops *bc1d2_chg_ops = bc1d2_hal_data.bc1d2_chg_ops;
 	int ret = 0;
@@ -70,7 +70,7 @@ static int sqc_hal_bc1d2_set_charger_type(int chg_type)
 	return ret;
 }
 
-static int sqc_hal_bc1d2_get_charger_type(int *chg_type)
+static int sqc_hal_bc1d2_get_charger_type(unsigned int *chg_type)
 {
 	struct sqc_bc1d2_proto_ops *bc1d2_chg_ops = bc1d2_hal_data.bc1d2_chg_ops;
 	int ret = 0;

@@ -595,4 +595,5 @@ struct device *sfp_get_ipa_dev(void);
 u32 hash_conntrack(const struct nf_conntrack_tuple *tuple);
 
 int sfp_test_init(int count);
+void set_sfp_enable(bool enable);
 #endif

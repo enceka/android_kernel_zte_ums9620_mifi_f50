@@ -213,6 +213,7 @@ int sitronix_ts_monitor_thread_v3(void *data)
 #endif	//SITRONIX_MT_CHECK_DIS
 			if (-1 == result) {
 				stmsg("ESD detected chip abnormal, reset device!\n");
+				tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
 				sitronix_ts_mt_reset_process();
 				mt_peroid = DELAY_MONITOR_THREAD_PEROID_NORMAL;
 				i2cErrorCount = 0;
@@ -223,6 +224,7 @@ exit_i2c_invalid:
 				i2cErrorCount++;
 				if ((2 <= i2cErrorCount)) {
 					stmsg("I2C abnormal or status bootcode, reset it!\n");
+					tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
 					sitronix_ts_mt_reset_process();
 					mt_peroid = DELAY_MONITOR_THREAD_PEROID_NORMAL;
 					i2cErrorCount = 0;

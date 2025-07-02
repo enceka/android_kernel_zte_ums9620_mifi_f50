@@ -612,7 +612,7 @@ static int gnss_dump_dummy(int len)
 	GNSSDUMP_INFO("%s %d ok!\n", __func__, count);
 	return 0;
 }
-static int gnss_integrated_dump_mem(void)
+static int gnss_integrated_dump_mem(enum wcn_source_type type)
 {
 	int ret = 0;
 	int dummy_len = 0;
@@ -629,6 +629,10 @@ static int gnss_integrated_dump_mem(void)
 			&& (gnss_sys_is_deepsleep_status(s_wcn_device.gnss_device));
 		if (!gnss_sleep_flag)
 			gnss_hold_cpu();
+		if (type != WCN_SOURCE_GNSS) {
+			GNSSDUMP_INFO("Source not form GNSS, only hold cpu!\n");
+			return -EBUSY;
+		}
 	}
 	ret = gnss_dump_share_memory(GNSS_SHARE_MEMORY_SIZE);
 	if (wcn_platform_chip_type() == WCN_PLATFORM_TYPE_QOGIRL6) {
@@ -726,7 +730,7 @@ static int gnss_ext_dump_mem(void)
 }
 #endif
 
-int gnss_dump_mem(char flag)
+int gnss_dump_mem(enum wcn_source_type type, char flag)
 {
 	int ret = 0;
 
@@ -738,7 +742,9 @@ int gnss_dump_mem(char flag)
 		GNSSDUMP_INFO("need dump gnss\n");
 	}
 	gnss_dump_level = flag;
-	ret = gnss_integrated_dump_mem();
+	ret = gnss_integrated_dump_mem(type);
+	if (ret == -EBUSY)
+		return ret;
 #else
 	ret = gnss_ext_dump_mem();
 #endif

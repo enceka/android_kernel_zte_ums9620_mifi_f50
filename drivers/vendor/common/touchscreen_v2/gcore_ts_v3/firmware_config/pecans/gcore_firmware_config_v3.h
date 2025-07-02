@@ -113,8 +113,8 @@
 #define GTP_REPORT_BY_ZTE_ALGO
 
 #define CONFIG_CB_SIZE  (1354)
-/* #define GTP_GET_NOISE */
-#define GTP_VENDOR_ID_0 0x61105
+ #define GTP_GET_NOISE
+#define GTP_VENDOR_ID_0 0x07150f
 #define GTP_VENDOR_ID_1 0
 #define GTP_VENDOR_ID_2 0
 #define GTP_VENDOR_ID_3 0

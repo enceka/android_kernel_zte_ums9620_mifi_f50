@@ -72,7 +72,6 @@
 #include <linux/version.h>
 
 #include "tlsc6x_main.h"
-#include "ztp_common.h"
 
 #define	TOUCH_VIRTUAL_KEYS
 #define	MULTI_PROTOCOL_TYPE_B	1
@@ -118,7 +117,7 @@ static DECLARE_WAIT_QUEUE_HEAD(tpd_esd_waiter);
 #ifdef TLSC_TPD_PROXIMITY
 static int tlsc6x_prox_ctrl(int enable);
 unsigned char tpd_prox_old_state = 0;
-static int tpd_prox_active = 0;
+int tpd_prox_active = 0;
 static struct class *sprd_tpd_class;
 static struct device *sprd_ps_cmd_dev;
 #endif
@@ -254,11 +253,9 @@ int tlsc6x_i2c_read(struct i2c_client *client, char *writebuf, int writelen, cha
 	/* lock in this function so we can do direct mode iic transfer in debug fun */
 	mutex_lock(&i2c_rw_access);
 	ret = tlsc6x_i2c_read_sub(client, writebuf, writelen, readbuf, readlen);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	if (ret < 0) {
 		tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
 	}
-#endif
 	mutex_unlock(&i2c_rw_access);
 
 	return ret;
@@ -301,11 +298,9 @@ int tlsc6x_i2c_write(struct i2c_client *client, char *writebuf, int writelen)
 	mutex_lock(&i2c_rw_access);
 	ret = tlsc6x_i2c_write_sub(client, writebuf, writelen);
 	mutex_unlock(&i2c_rw_access);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	if (ret < 0) {
 		tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
 	}
-#endif
 	return ret;
 
 }
@@ -327,7 +322,7 @@ int tlsc6x_read_reg(struct i2c_client *client, u8 regaddr, u8 *regvalue)
 	return tlsc6x_i2c_read(client, &regaddr, 1, regvalue, 1);
 }
 
-static void tlsc6x_clear_report_data(struct tlsc6x_data *drvdata)
+void tlsc6x_clear_report_data(struct tlsc6x_data *drvdata)
 {
 	int i;
 	TLSC_FUNC_ENTER();
@@ -344,7 +339,7 @@ static void tlsc6x_clear_report_data(struct tlsc6x_data *drvdata)
 #endif
 	input_sync(drvdata->input_dev);
 #ifdef TLSC_REPORT_BY_ZTE_ALGO
-	if (tpd_cdev->zte_tp_algo) 
+	if (tpd_cdev->zte_tp_algo)
 		tpd_clean_all_event();
 #endif
 }
@@ -600,7 +595,7 @@ static int tlsc6x_update_data(void)
 			input_report_abs(data->input_dev, ABS_MT_PRESSURE, 15);
 #endif
 			input_report_abs(data->input_dev, ABS_MT_TOUCH_MAJOR, ft_size);
-			input_report_key(data->input_dev, BTN_TOUCH, 1);		
+			input_report_key(data->input_dev, BTN_TOUCH, 1);
 		}
 #else
 #if MULTI_PROTOCOL_TYPE_B
@@ -656,6 +651,15 @@ static irqreturn_t touch_event_thread_handler(int irq, void *devid)
 	struct tlsc6x_data *data = i2c_get_clientdata(this_client);
 #endif
 
+	if (tpd_cdev->bbat_test_enter) {
+		if (tpd_cdev->bbat_int_test == false) {
+			tpd_cdev->bbat_int_test = true;
+			complete(&tpd_cdev->bbat_test_completion);
+			tlsc_info("%s tpd int BBAT test success", __func__);
+		}
+		return IRQ_HANDLED;
+	}
+
 	tlsc6x_update_data();
 
 #ifdef CONFIG_TLSC_POINT_REPORT_CHECK
@@ -674,7 +678,7 @@ void tlsc6x_tpd_reset_force(void)
 	gpio_direction_output(pdata->reset_gpio_number, 1);
 	usleep_range(10000, 11000);
 	gpio_set_value(pdata->reset_gpio_number, 0);
-	usleep_range(5000, 5010);
+	usleep_range(10000, 10010);
 	gpio_set_value(pdata->reset_gpio_number, 1);
 	msleep(60);
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
@@ -682,7 +686,7 @@ void tlsc6x_tpd_reset_force(void)
 #endif
 }
 
-static void tlsc6x_tpd_reset(void)
+void tlsc6x_tpd_reset(void)
 {
 	TLSC_FUNC_ENTER();
 	if (g_tp_drvdata->needKeepRamCode) {
@@ -790,6 +794,8 @@ static void tlsc6x_ts_resume(struct early_suspend *handler)
 
 static void tlsc6x_resume_work(struct work_struct *work)
 {
+	u8 test_val = 0;
+
 	TLSC_FUNC_ENTER();
 
 	if (g_tp_drvdata->suspended == false) {
@@ -806,6 +812,16 @@ static void tlsc6x_resume_work(struct work_struct *work)
 	tlsc6x_clear_report_data(g_tp_drvdata);
 #ifdef TLSC_TPD_PROXIMITY
 	tlsc6x_prox_ctrl(tpd_prox_active);
+	if (tpd_prox_active) {
+		msleep(60);
+		if (tlsc6x_read_reg(this_client, 0xb0, &test_val) >= 0) {
+			if (test_val != 0x01) {
+				tlsc6x_prox_ctrl(tpd_prox_active);
+				tlsc_info("%s : tpd_prox_active enable fail.\n", __func__);
+			}
+		}
+	}
+
 	if (tpd_prox_active && (real_suspend_flag == 0)) {
 		disable_irq_wake(this_client->irq);
 		g_tp_drvdata->suspended = false;
@@ -1201,7 +1217,7 @@ static ssize_t tlsc6x_proc_write(struct file *filp, const char __user *buff, siz
 	case 14:	/* e, esd control */
 		g_tp_drvdata->esdHelperFreeze = (int)local_buf[1];
 		break;
-	case 15:	
+	case 15:
 		memset(get_data_buf, 0x00, (sizeof(char) * 8));
 		memcpy(get_data_buf, local_buf, (sizeof(char) * 8));
 		get_data_start(get_data_buf);
@@ -1364,9 +1380,7 @@ static int esd_check_work(void)
 		}
 	}
 	if (ret < 0) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
 		tlsc6x_tpd_reset_force();
 
 		tlsc6x_clear_report_data(g_tp_drvdata);
@@ -1702,6 +1716,16 @@ static ssize_t enable_store(struct class *class,
 		tpd_prox_active = enable;
 	}
 	mutex_unlock(&g_tp_drvdata->action_mutex);
+#ifdef CONFIG_TOUCHSCREEN_PSENSOR_REPORT_CHECK
+	if (enable) {
+		tlsc_info(" queue psensor_report_check_work success!");
+		cancel_delayed_work(&tpd_cdev->psensor_report_check_work);
+		queue_delayed_work(tpd_cdev->tpd_report_wq, &tpd_cdev->psensor_report_check_work, msecs_to_jiffies(200));
+	} else {
+		tlsc_info(" cancel psensor_report_check_work success!");
+		cancel_delayed_work(&tpd_cdev->psensor_report_check_work);
+	}
+#endif
 
 	return count;
 }
@@ -1872,31 +1896,31 @@ static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *i
 	/*add class sysfs for tp_ps*/
 	err = class_register(&ps_sensor_class);
 	if (err < 0) {
-		tlsc_err("%s,Create fsys class failed (%d)\n", err);
+		tlsc_err("%s,Create fsys class failed (%d)\n", __func__, err);
 		goto err_class_creat;
 	}
 
 	err = class_create_file(&ps_sensor_class, &class_attr_delay);
 	if (err < 0) {
-		tlsc_err("%s, Create delay file failed (%d)\n", err);
+		tlsc_err("%s, Create delay file failed (%d)\n", __func__, err);
 		goto exit_unregister_class;
 	}
 
 	err = class_create_file(&ps_sensor_class, &class_attr_enable);
 	if (err < 0) {
-		tlsc_err("%s, Create enable file failed (%d)\n", err);
+		tlsc_err("%s, Create enable file failed (%d)\n", __func__, err);
 		goto exit_unregister_class;
 	}
 
 	err = class_create_file(&ps_sensor_class, &class_attr_flush);
 	if (err < 0) {
-		tlsc_err("%s, Create flush file failed (%d)\n", err);
+		tlsc_err("%s, Create flush file failed (%d)\n", __func__, err);
 		goto exit_unregister_class;
 	}
 
 	err = class_create_file(&ps_sensor_class, &class_attr_batch);
 	if (err < 0) {
-		tlsc_err("%s, Create batch file failed (%d)\n", err);
+		tlsc_err("%s, Create batch file failed (%d)\n", __func__, err);
 		goto exit_unregister_class;
 	}
 #endif
@@ -1982,7 +2006,6 @@ static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *i
 #ifdef CONFIG_TLSC_POINT_REPORT_CHECK
 	INIT_DELAYED_WORK(&g_tp_drvdata->point_report_check_work, tlsc_point_report_check);
 #endif
-
 	tlsc6x_get_tp_vendor_info();
 	tlsc6x_tpd_register_fw_class();
 	if (g_tlsc6x_cfg_ver) {
@@ -1998,7 +2021,7 @@ static int tlsc6x_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 exit_irq_request_failed:
 	destroy_workqueue(g_tp_drvdata->tlsc_workqueue);
-	mutex_destroy(&g_tp_drvdata->action_mutex);	
+	mutex_destroy(&g_tp_drvdata->action_mutex);
 exit_create_workqueue_failed:
 #ifdef TLSC_TPD_PROXIMITY
 exit_sysfs_create_group_failed:
@@ -2035,10 +2058,7 @@ exit_alloc_data_failed:
 	g_tp_drvdata = NULL;
 	i2c_set_clientdata(client, g_tp_drvdata);
 exit_alloc_platform_data_failed:
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_TLSC)
-		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_TLSC;
-#endif
+	tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_TLSC;
 	return err;
 }
 

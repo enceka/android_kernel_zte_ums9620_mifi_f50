@@ -45,7 +45,7 @@
 
 #define AW_READ_CHIPID_RETRIES 5
 #define AW_I2C_RETRIES 5
-#define AW9610X_SCAN_DEFAULT_TIME 10000
+#define AW9610X_SCAN_DEFAULT_TIME 3
 #define CALI_FILE_MAX_SIZE 128
 #define AWINIC_CALI_FILE "/mnt/aw_cali.bin"
 static char *aw9610x_cfg_name = "aw9610x.bin";
@@ -55,6 +55,27 @@ static u8 diff_ch_num = 1;
 static struct device *class_dev;
 static struct class *cls;
 static dev_t const aw9610x_cls_device_dev_t = MKDEV(10, 0);
+
+/* add zte boardtest interface start */
+static uint8_t is_sar2_exist = 0;
+#ifdef CONFIG_VENDOR_ZTE_MISC_COMMON
+#include <vendor/common/zte_misc.h>
+
+int is_sar2_exist_get(char *val, const void *arg)
+{
+	return snprintf(val, PAGE_SIZE, "%d", is_sar2_exist);
+}
+
+static struct zte_misc_ops is_sar2_exist_node = {
+	.node_name = "is_sar2_exist",
+	.set = NULL,
+	.get = is_sar2_exist_get,
+	.free = NULL,
+	.arg = NULL,
+};
+#endif
+/* zte boardtest interface end */
+
 /******************************************************
 *
 * aw9610x i2c write/read
@@ -592,9 +613,13 @@ static void aw9610x_channel_scan_start(struct aw9610x *aw9610x)
 				aw9610x_get_calidata(aw9610x);
 			break;
 		}
-		udelay(1000);
+		//pr_info("%s: reg_data %d time = %d\n", __func__, reg_data, temp_time);
+		mdelay(1);
 	}
 	aw9610x_i2c_write(aw9610x, REG_HOSTIRQEN, aw9610x->hostirqen);
+
+	aw9610x_i2c_write(aw9610x, REG_CMD, 0x02); // enter sleep mode
+	disable_irq(gpio_to_irq(aw9610x->irq_gpio));
 }
 
 static void aw9610x_bin_valid_loaded(struct aw9610x *aw9610x,
@@ -630,19 +655,19 @@ static void aw9610x_bin_valid_loaded(struct aw9610x *aw9610x,
 static int32_t aw9610x_para_loaded(struct aw9610x *aw9610x)
 {
 	int32_t i = 0;
-	int32_t len = ARRAY_SIZE(aw9610x_reg_default);
+	int32_t len = ARRAY_SIZE(aw9610x_2_reg_default);
 
 	pr_info("%s: start to download para!\n", __func__);
 	for (i = 0; i < len; i = i + 2) {
 		aw9610x_i2c_write(aw9610x,
-				(uint16_t)aw9610x_reg_default[i],
-				aw9610x_reg_default[i+1]);
-		if (aw9610x_reg_default[i] == REG_HOSTIRQEN)
-			aw9610x->hostirqen = aw9610x_reg_default[i+1];
+				(uint16_t)aw9610x_2_reg_default[i],
+				aw9610x_2_reg_default[i+1]);
+		if (aw9610x_2_reg_default[i] == REG_HOSTIRQEN)
+			aw9610x->hostirqen = aw9610x_2_reg_default[i+1];
 		/*pr_info("%s: reg_addr = 0x%04x, reg_data = 0x%08x\n",
 						__func__,
-						aw9610x_reg_default[i],
-						aw9610x_reg_default[i+1]);*/
+						aw9610x_2_reg_default[i],
+						aw9610x_2_reg_default[i+1]);*/
 	}
 	pr_info("%s para writen completely:\n", __func__);
 
@@ -702,17 +727,12 @@ static int32_t aw9610x_cfg_update(struct aw9610x *aw9610x)
 {
 	pr_info("%s: enter\n", __func__);
 
-	if (aw9610x->firmware_flag == true)
-		return request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
-							aw9610x_cfg_name,
-							aw9610x->dev,
-							GFP_KERNEL,
-							aw9610x,
-							aw9610x_cfg_all_loaded);
-	else
-		aw9610x_para_loaded(aw9610x);
-
-	return AW_SAR_SUCCESS;
+	return request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
+						aw9610x_cfg_name,
+						aw9610x->dev,
+						GFP_KERNEL,
+						aw9610x,
+						aw9610x_cfg_all_loaded);
 }
 
 static void aw9610x_cfg_work_routine(struct work_struct *work)
@@ -743,9 +763,13 @@ static int32_t aw9610x_sar_cfg_init(struct aw9610x *aw9610x, int32_t flag)
 
 	pr_info("%s: cali_node = %d\n", __func__, aw9610x->node);
 
-	INIT_DELAYED_WORK(&aw9610x->cfg_work, aw9610x_cfg_work_routine);
-	schedule_delayed_work(&aw9610x->cfg_work,
-					      msecs_to_jiffies(cfg_timer_val));
+	if (aw9610x->firmware_flag == true) {
+		INIT_DELAYED_WORK(&aw9610x->cfg_work, aw9610x_cfg_work_routine);
+		schedule_delayed_work(&aw9610x->cfg_work,
+					   msecs_to_jiffies(cfg_timer_val));
+	} else {
+		aw9610x_para_loaded(aw9610x);
+	}
 
 	for (i = 0; i < AW_SAR_CAHNNEL_MAX; i++) {
 		aw9610x->curr_state[i] = 0;
@@ -1061,9 +1085,15 @@ static ssize_t aw9610x_enable_store(struct device *dev,
 		return -EINVAL;
 	}
 	pr_info("%s en = %d", __func__, en);
-	if (en == 0)
+	if (en == 0) {
 		en = 2;
-	aw9610x_i2c_write(aw9610x, REG_CMD, en);
+		aw9610x_i2c_write(aw9610x, REG_CMD, en);
+		disable_irq(gpio_to_irq(aw9610x->irq_gpio));
+	} else {
+		enable_irq(gpio_to_irq(aw9610x->irq_gpio));
+		aw9610x_i2c_write(aw9610x, REG_CMD, en);
+	}
+
 	return count;
 }
 
@@ -1215,7 +1245,7 @@ static void aw9610x_interrupt_clear(struct aw9610x *aw9610x)
 	}
 
 #if (defined CONFIG_VENDOR_SOC_SPRD_COMPILE) || (defined CONFIG_VENDOR_SOC_QCOM_COMPILE)
-	input_report_abs(aw9610x->input, ABS_RX, report_data[0]);
+	input_report_abs(aw9610x->input, ABS_DISTANCE, report_data[0]);
 	input_report_abs(aw9610x->input, ABS_RY, report_data[1]);
 	input_sync(aw9610x->input);
 #endif
@@ -1348,6 +1378,7 @@ static int32_t aw9610x_read_chipid(struct aw9610x *aw9610x)
 
 	if (reg_val == AW9610X_CHIP_ID) {
 		pr_info("%s aw9610x detected\n", __func__);
+		is_sar2_exist = 1;
 		return AW_SAR_SUCCESS;
 	} else {
 		pr_info("%s unsupported device,the chipid is (0x%04x)\n",
@@ -1446,7 +1477,7 @@ static ssize_t delay_show(struct class *class,
 		struct class_attribute *attr,
 		char *buf)
 {
-	pr_info("awinic sar %s: enter\n", __func__);
+	pr_info("aw9610x_2 class sar %s: enter\n", __func__);
 	return snprintf(buf, 8, "%d\n", 200);
 }
 
@@ -1454,7 +1485,7 @@ static ssize_t delay_store(struct class *class,
 		struct class_attribute *attr,
 		const char *buf, size_t count)
 {
-	pr_info("awinic sar %s: enter\n", __func__);
+	pr_info("aw9610x_2 class sar %s: enter\n", __func__);
 	return count;
 }
 
@@ -1467,18 +1498,27 @@ static ssize_t enable_store(struct class *class,
 	int en;
 
 	if (!aw_sar_ptr) {
-		pr_err("%s aw_sar_ptr null!\n", __func__);
+		pr_err("aw9610x_2 class %s aw_sar_ptr null!\n", __func__);
 		return count;
 	}
 
 	if (sscanf(buf, "%d", &en) != 1) {
-		pr_err("%s - The number of data are wrong\n", __func__);
+		pr_err("aw9610x_2 class %s - The number of data are wrong\n", __func__);
 		return -EINVAL;
 	}
-	pr_info("%s en = %d", __func__, en);
-	if (en == 0)
+	pr_info("aw9610x_2 class %s en = %d", __func__, en);
+
+	if (en == 0) {
 		en = 2;
-	aw9610x_i2c_write(aw_sar_ptr, REG_CMD, en);
+		aw9610x_i2c_write(aw_sar_ptr, REG_CMD, en);
+		disable_irq(gpio_to_irq(aw_sar_ptr->irq_gpio));
+	} else {
+		input_report_abs(aw_sar_ptr->input, ABS_DISTANCE, 30);
+		input_sync(aw_sar_ptr->input);
+		enable_irq(gpio_to_irq(aw_sar_ptr->irq_gpio));
+		aw9610x_i2c_write(aw_sar_ptr, REG_CMD, en);
+	}
+
 	return count;
 }
 
@@ -1488,7 +1528,7 @@ static ssize_t chip_info_show(struct class *class,
 		struct class_attribute *attr,
 		char *buf)
 {
-	pr_info("awinic sar %s: enter, chip=%s\n", __func__, chip_info);
+	pr_info("aw9610x_2 class sar %s: enter, chip=%s\n", __func__, chip_info);
 	return snprintf(buf, 25, "%s", chip_info);
 }
 
@@ -1504,7 +1544,7 @@ static ssize_t status_show(struct class *class,
 	if (aw_sar_ptr) {
 		aw9610x_i2c_read(aw_sar_ptr, REG_STAT1, &reg_data);
 		status = (reg_data >> 24) & 0x2;
-		pr_info("%s status value is %d", __func__, status);
+		pr_info("aw9610x_2 class %s status value is %d", __func__, status);
 		if ((aw_sar_ptr->status == 0) && (status != 0x02)) {
 			return snprintf(buf, 64, "1\n");
 		} else {
@@ -1512,7 +1552,7 @@ static ssize_t status_show(struct class *class,
 		}
 	}
 
-	pr_err("%s aw_sar_ptr is NULL!!!", __func__);
+	pr_err("aw9610x_2 class %s aw_sar_ptr is NULL!!!", __func__);
 	return snprintf(buf, 64, "1\n");
 }
 
@@ -1534,7 +1574,7 @@ static ssize_t diff_show(struct class *class,
 		valid /= 1024;
 		baseline /= 1024;
 	}
-	pr_err("%s - %d,%d,%d\n", __func__, valid, baseline, diff);
+	pr_err("aw9610x_2 class %s - %d,%d,%d\n", __func__, valid, baseline, diff);
 	return snprintf(buf, 64, "%d,%d,%d\n", valid, baseline, diff);
 }
 
@@ -1545,7 +1585,7 @@ static ssize_t diff_store(struct class *class,
 	int chx = 1;
 
 	if (sscanf(buf, "%d", &chx) != 1) {
-		pr_err("%s - The number of data are wrong\n", __func__);
+		pr_err("aw9610x_2 class %s - The number of data are wrong\n", __func__);
 		return -EINVAL;
 	}
 	diff_ch_num = chx;
@@ -1558,7 +1598,7 @@ static ssize_t batch_show(struct class *class,
 		struct class_attribute *attr,
 		char *buf)
 {
-	pr_info("%s entry", __func__);
+	pr_info("aw9610x_2 class %s entry", __func__);
 	return snprintf(buf, 64, "200\n");
 }
 
@@ -1566,7 +1606,7 @@ static ssize_t batch_store(struct class *class,
 		struct class_attribute *attr,
 		const char *buf, size_t count)
 {
-	pr_info("%s entry", __func__);
+	pr_info("aw9610x_2 class %s entry", __func__);
 	return count;
 }
 static CLASS_ATTR_RW(batch);
@@ -1575,7 +1615,7 @@ static ssize_t flush_show(struct class *class,
 		struct class_attribute *attr,
 		char *buf)
 {
-	pr_info("%s entry", __func__);
+	pr_info("aw9610x_2 class %s entry", __func__);
 	return snprintf(buf, 64, "0\n");
 }
 
@@ -1583,7 +1623,7 @@ static ssize_t flush_store(struct class *class,
 		struct class_attribute *attr,
 		const char *buf, size_t count)
 {
-	pr_info("%s entry", __func__);
+	pr_info("aw9610x_2 class %s entry", __func__);
 	return count;
 }
 static CLASS_ATTR_RW(flush);
@@ -1596,11 +1636,11 @@ static ssize_t calibrate_show(struct class *class,
 
 	if (aw_sar_ptr) {
 		aw9610x_i2c_read(aw_sar_ptr, REG_SCANCTRL0, &reg_data);
-		pr_info("%s calibrate reg value is 0x%x\n", __func__, reg_data);
+		pr_info("aw9610x_2 class %s calibrate reg value is 0x%x\n", __func__, reg_data);
 		return snprintf(buf, 64, "%x\n", reg_data);
 	}
 
-	pr_err("%s aw_sar_ptr is NULL!!!", __func__);
+	pr_err("aw9610x_2 class %s aw_sar_ptr is NULL!!!", __func__);
 	return snprintf(buf, 64, "%d\n", reg_data);
 }
 
@@ -1612,14 +1652,14 @@ static ssize_t calibrate_store(struct class *class,
 
 	if (aw_sar_ptr) {
 		aw9610x_i2c_read(aw_sar_ptr, REG_SCANCTRL0, &reg_data);
-		pr_info("%s calibrate reg before value is 0x%x\n", __func__, reg_data);
+		pr_info("aw9610x_2 class %s calibrate reg before value is 0x%x\n", __func__, reg_data);
 		reg_data |= 0x0F00;
-		pr_info("%s calibrate reg after value is 0x%x\n", __func__, reg_data);
+		pr_info("aw9610x_2 class %s calibrate reg after value is 0x%x\n", __func__, reg_data);
 		aw9610x_i2c_write(aw_sar_ptr, REG_SCANCTRL0, reg_data);
 		return count;
 	}
 
-	pr_err("%s aw_sar_ptr is NULL!!!", __func__);
+	pr_err("aw9610x_2 class %s aw_sar_ptr is NULL!!!", __func__);
 	return count;
 }
 static CLASS_ATTR_RW(calibrate);
@@ -1720,6 +1760,12 @@ static int32_t aw9610x_i2c_probe(struct i2c_client *i2c, const struct i2c_device
 		pr_err("%s: read chipid failed, ret=%d\n", __func__, ret);
 		goto err_chipid;
 	}
+
+	/* add boardtest interface start */
+#ifdef CONFIG_VENDOR_ZTE_MISC_COMMON
+	zte_misc_register_callback(&is_sar2_exist_node, NULL);
+#endif
+	/* add boardtest interface end */
 
 	aw9610x_sw_reset(aw9610x);
 

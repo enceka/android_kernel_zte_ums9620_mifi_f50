@@ -14,19 +14,51 @@
 
 #include "fpc1020.h"
 
-#define FPC_DRIVER_VERSION	"v2023-03-23"
-#define FPC_MODULE_NAME "fpc1020"
-#define FPC_RESET_LOW_US 5000
-#define FPC_RESET_HIGH1_US 100
-#define FPC_RESET_HIGH2_US 5000
+#define ZLOG_MOD_NAME	"[ZTE_LDD_FP]"
+#define ZLOG_VENDOR_NAME	"[FPC]"
 
-#define FPC_TTW_HOLD_TIME 2000
+#define FPC_MODULE_NAME "fpc1020"
+#define FPC_RESET_LOW_US 2000  // 5000 -> 2000
+#define FPC_RESET_HIGH1_US 100
+#define FPC_RESET_HIGH2_US 2000  // 5000 -> 2000
+
+#define FPC_TTW_HOLD_TIME 3000
 #define SUPPLY_1V8	1800000UL
 #define SUPPLY_3V3	3300000UL
 #define SUPPLY_TX_MIN	SUPPLY_3V3
 #define SUPPLY_TX_MAX	SUPPLY_3V3
 
 static irqreturn_t fpc_irq_handler(int irq, void *handle);
+
+extern int zte_fp_pinctrl_select_spi(bool is_spi_mode);
+
+typedef enum {
+	ERR_LOG = 0,
+	WARN_LOG,
+	INFO_LOG,
+	DEBUG_LOG,
+	ALL_LOG,
+} fpc1020_debug_level_t;
+
+extern int zte_fp_log_level;
+
+#define fpc_debug(level, fmt, args...) do { \
+			if (zte_fp_log_level >= level) {\
+				pr_err("%s%s"fmt, ZLOG_MOD_NAME, ZLOG_VENDOR_NAME, ##args); \
+			} \
+		} while (0)
+
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+
+struct zlog_mod_info fpc_zlog_fp_dev = {
+	.module_no = ZLOG_MODULE_FP,
+	.name = "fingerprint",
+	.device_name = "KERR",
+	.ic_name = "FPC",
+	.module_name = "FP",
+	.fops = NULL,
+};
+#endif
 
 static int hw_reset(struct  fpc_data *fpc)
 {
@@ -35,23 +67,23 @@ static int hw_reset(struct  fpc_data *fpc)
 	fpc_debug(INFO_LOG, "[3]%s enter!\n", __func__);
 
 	if (gpio_is_valid(fpc->rst_gpio)) {
-		fpc_debug(INFO_LOG, "reset begin.\n");
+		fpc_debug(INFO_LOG, "[RESET] reset begin.\n");
 		gpio_direction_output(fpc->rst_gpio, 1);
-		usleep_range(FPC_RESET_HIGH1_US, FPC_RESET_HIGH1_US + 100);
-		fpc_debug(INFO_LOG, "reset start.\n");
+		usleep_range(FPC_RESET_HIGH1_US, FPC_RESET_HIGH1_US + 100);  //100us ~ 200us
+		fpc_debug(INFO_LOG, "[RESET] reset start.\n");
 
 		gpio_direction_output(fpc->rst_gpio, 0);
-		usleep_range(FPC_RESET_LOW_US, FPC_RESET_LOW_US + 100);
-		fpc_debug(INFO_LOG, "reset end.\n");
+		usleep_range(FPC_RESET_LOW_US, FPC_RESET_LOW_US + 100);   //5000us ~ 5100us -> 2000us ~ 2100us
+		fpc_debug(INFO_LOG, "[RESET] reset end.\n");
 
 		gpio_direction_output(fpc->rst_gpio, 1);
-		usleep_range(FPC_RESET_HIGH2_US, FPC_RESET_HIGH2_US + 100);
-		fpc_debug(INFO_LOG, "reset finish.\n");
+		usleep_range(FPC_RESET_HIGH2_US, FPC_RESET_HIGH2_US + 100); //5000us ~ 5100us -> 2000us ~ 2100us
+		fpc_debug(INFO_LOG, "[RESET] reset finish.\n");
 
 	}
 
 	irq_gpio = gpio_get_value(fpc->irq_gpio);
-	fpc_debug(INFO_LOG, "IRQ after reset %d\n", irq_gpio);
+	fpc_debug(INFO_LOG, "[RESET] IRQ status after reset %d\n", irq_gpio);
 
 	return 0;
 }
@@ -161,9 +193,12 @@ static ssize_t irq_ack(struct device *device,
 			struct device_attribute *attribute,
 			const char *buffer, size_t count)
 {
-	/*struct fpc_data *fpc = dev_get_drvdata(device);*/
+	struct fpc_data *fpc = dev_get_drvdata(device);
+	ktime_t irq_end_time = 0;
 
-	fpc_debug(ERR_LOG, "%s\n", __func__);
+	irq_end_time = ktime_get_boottime();
+
+	fpc_debug(ERR_LOG, "[IRQ] end %lld, [CONSUME] %lld ms.\n", irq_end_time, ktime_ms_delta(irq_end_time, fpc->irq_start_time));
 
 	return count;
 }
@@ -266,6 +301,7 @@ static int fpc_power_enable(struct fpc_data *fpc, bool enable)
 			fpc_debug(ERR_LOG, ">>>%s: power on found power source failed\n", __func__);
 			return -EINVAL;
 		}
+		usleep_range(2000,2000);
 	} else {
 		if ((fpc->power_type == 1) && (fpc->fp_reg != NULL)) {
 			ret = regulator_disable(fpc->fp_reg);
@@ -322,6 +358,12 @@ static int fpc_gpio_request(struct device *dev, bool request)
 			ret = devm_gpio_request(dev, fpc->irq_gpio, "fpc_irq");
 			if (ret) {
 				fpc_debug(ERR_LOG, ">>>%s:request fpc_irq failed, ret=%d\n", __func__, ret);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+				if (fpc->zlog_fp_client) {
+					zlog_client_record(fpc->zlog_fp_client, "Failed to request fpc irq gpio\n");
+					zlog_client_notify(fpc->zlog_fp_client,  ZLOG_FP_REQUEST_INT_GPIO_ERROR_NO);
+				}
+#endif
 				return -EINVAL;
 			} else {
 				fpc_debug(INFO_LOG, ">>>%s:request fpc_irq success\n", __func__);
@@ -332,6 +374,12 @@ static int fpc_gpio_request(struct device *dev, bool request)
 			ret = devm_gpio_request(dev, fpc->rst_gpio, "fpc_rst");
 			if (ret) {
 				fpc_debug(ERR_LOG, ">>>%s:request fpc_rst failed, ret=%d\n", __func__, ret);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+				if (fpc->zlog_fp_client) {
+					zlog_client_record(fpc->zlog_fp_client, "Failed to request fpc rst gpio\n");
+					zlog_client_notify(fpc->zlog_fp_client,  ZLOG_FP_REQUEST_RST_GPIO_ERROR_NO);
+				}
+#endif
 				return -EINVAL;
 			} else {
 				fpc_debug(INFO_LOG, ">>>%s:request fpc_rst success\n", __func__);
@@ -342,6 +390,12 @@ static int fpc_gpio_request(struct device *dev, bool request)
 			fpc->fp_reg = devm_regulator_get(dev, "vdd");
 			if (IS_ERR_OR_NULL(fpc->fp_reg)) {
 				fpc_debug(ERR_LOG, ">>>%s:get regulator failed\n", __func__);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+				if (fpc->zlog_fp_client) {
+					zlog_client_record(fpc->zlog_fp_client, "Failed to regulator get fpc vcc\n");
+					zlog_client_notify(fpc->zlog_fp_client,  ZLOG_FP_REGULATOR_GET_SET_ERROR_NO);
+				}
+#endif
 				return -EINVAL;
 			} else {
 				fpc_debug(INFO_LOG, ">>>%s:get regulator success\n", __func__);
@@ -350,6 +404,12 @@ static int fpc_gpio_request(struct device *dev, bool request)
 			ret = regulator_set_voltage(fpc->fp_reg, fpc->power_voltage, fpc->power_voltage);
 			if (ret) {
 				fpc_debug(ERR_LOG, ">>>%s:regulator_set_voltage failed, ret=%d\n", __func__, ret);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+				if (fpc->zlog_fp_client) {
+					zlog_client_record(fpc->zlog_fp_client, "Failed to regulator set fpc vcc\n");
+					zlog_client_notify(fpc->zlog_fp_client,  ZLOG_FP_REGULATOR_GET_SET_ERROR_NO);
+				}
+#endif
 				return -EINVAL;
 			} else {
 				fpc_debug(INFO_LOG, ">>>%s:regulator_set_voltage success, power_voltage %d\n", __func__, fpc->power_voltage);
@@ -358,7 +418,13 @@ static int fpc_gpio_request(struct device *dev, bool request)
 			if (gpio_is_valid(fpc->pwr_gpio)) {
 				ret = devm_gpio_request(dev, fpc->pwr_gpio, "fpc_vdd");
 				if (ret) {
-					fpc_debug(ERR_LOG, ">>>%s:request fpc_vdd failed, ret=%d\n", __func__, ret);
+					fpc_debug(ERR_LOG, ">>>%s:request fpc_vdd gpio failed, ret=%d\n", __func__, ret);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+					if (fpc->zlog_fp_client) {
+						zlog_client_record(fpc->zlog_fp_client, "Failed to request fpc pwr gpio\n");
+						zlog_client_notify(fpc->zlog_fp_client,  ZLOG_FP_REQUEST_PWR_GPIO_ERROR_NO);
+					}
+#endif
 					return -EINVAL;
 				} else {
 					fpc_debug(INFO_LOG, ">>>%s:request fpc_vdd success\n", __func__);
@@ -482,17 +548,54 @@ static int fpc_driver_init(struct device *dev)
 static ssize_t compatible_all_set(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct fpc_data *fpc = dev_get_drvdata(dev);
+	ktime_t start_time = 0, end_time = 0;
 
-	fpc_debug(INFO_LOG, "%s enter %s, irq_num %d!\n", __func__, buf, fpc->irq_num);
+	start_time = ktime_get_boottime();
+
+	fpc_debug(INFO_LOG, "%s enter %s, irq_num %d, start_time %lld!\n", __func__, buf, fpc->irq_num, start_time);
 
 	if (0 == strncmp(buf, "enable", strlen("enable")) && fpc->irq_num == 0) {
 		fpc_debug(INFO_LOG, "%s:fpc_driver_init\n", __func__);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+		fpc->zlog_fp_client = zlog_register_client(&fpc_zlog_fp_dev);
+		if (fpc->zlog_fp_client) {
+			fpc_debug(INFO_LOG, "%s zlog_register_fpc_client success\n", __func__);
+		} else {
+			fpc_debug(ERR_LOG, "%s zlog_register_fpc_client fail\n", __func__);
+		}
+#endif
 		if (fpc_driver_init(dev) != GENERIC_OK) {
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+			if (fpc->zlog_fp_client) {
+				zlog_unregister_client(fpc->zlog_fp_client);
+				fpc_debug(INFO_LOG, "%s zlog_unregister_client fpc_zlog_fp_dev\n", __func__);
+			}
+#endif
 			return GENERIC_ERR;
 		}
+
+		zte_fp_pinctrl_select_spi(true);
+
+		end_time = ktime_get_boottime();
+
+		fpc_debug(ERR_LOG, "[ENABLE] end %lld, [CONSUME] %lld ms.\n", end_time, ktime_ms_delta(end_time, start_time));
 	} else if (0 == strncmp(buf, "disable", strlen("disable")) && fpc->irq_num != 0) {
+
 		fpc_debug(INFO_LOG, "%s:fpc_gpio_exit\n", __func__);
+
+		zte_fp_pinctrl_select_spi(false);
+
 		fpc_gpio_exit(dev);
+
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+		if (fpc->zlog_fp_client) {
+			zlog_unregister_client(fpc->zlog_fp_client);
+			fpc_debug(INFO_LOG, "%s zlog_unregister_client fpc_zlog_fp_dev\n", __func__);
+		}
+#endif
+		end_time = ktime_get_boottime();
+
+		fpc_debug(ERR_LOG, "[DISABLE] end %lld, [CONSUME] %lld ms.\n", end_time, ktime_ms_delta(end_time, start_time));
 	}
 	(void)attr;
 	fpc_debug(INFO_LOG, "%s exit!\n", __func__);
@@ -519,7 +622,9 @@ static irqreturn_t fpc_irq_handler(int irq, void *handle)
 {
 	struct fpc_data *fpc = handle;
 
-	fpc_debug(ERR_LOG, "%s\n", __func__);
+	fpc->irq_start_time = ktime_get_boottime();
+
+	fpc_debug(ERR_LOG, "[IRQ]: start %lld\n", fpc->irq_start_time);
 
 /*
 	if (fpc->hwabs->irq_handler)
@@ -550,9 +655,13 @@ int fpc_probe(struct platform_device *pldev)
 	struct device_node *node = dev->of_node;
 	struct fpc_data *fpc = NULL;
 	struct fpc_gpio_info *fpc_gpio_ops = NULL;
+	ktime_t start_time = 0, end_time = 0;
 	int rc = 0;
 
-	fpc_debug(INFO_LOG, "%s line %d\n", __func__, __LINE__);
+
+	start_time = ktime_get_boottime();
+
+	fpc_debug(INFO_LOG, "[PROBE] start_time %lld\n", start_time);
 
 	fpc = devm_kzalloc(dev, sizeof(*fpc), GFP_KERNEL);
 	if (!fpc) {
@@ -567,50 +676,50 @@ int fpc_probe(struct platform_device *pldev)
 	fpc->hwabs = fpc_gpio_ops;
 
 	if (!node) {
-		fpc_debug(ERR_LOG, "no of node found\n");
+		fpc_debug(ERR_LOG, "[PROBE] no of node found\n");
 		rc = -EINVAL;
 		goto exit;
 	}
 
 	fpc->irq_gpio = of_get_named_gpio(node, "fpc_irq", 0);
 	if (!gpio_is_valid(fpc->irq_gpio)) {
-		fpc_debug(ERR_LOG, "Requesting GPIO for IRQ failed with %d.\n", rc);
+		fpc_debug(ERR_LOG, "[PROBE] Requesting GPIO for IRQ failed with %d.\n", rc);
 		goto exit;
 	}
 
 	fpc->rst_gpio = of_get_named_gpio(node, "fpc_rst", 0);
 	if (!gpio_is_valid(fpc->rst_gpio)) {
-		fpc_debug(ERR_LOG, "Requesting GPIO for RST failed with %d.\n", rc);
+		fpc_debug(ERR_LOG, "[PROBE] Requesting GPIO for RST failed with %d.\n", rc);
 		goto exit;
 	}
 
-	fpc_debug(INFO_LOG, "Using GPIO#%d as IRQ.\n", fpc->irq_gpio);
-	fpc_debug(INFO_LOG, "Using GPIO#%d as RST.\n", fpc->rst_gpio);
+	fpc_debug(INFO_LOG, "[PROBE] Using GPIO#%d as IRQ.\n", fpc->irq_gpio);
+	fpc_debug(INFO_LOG, "[PROBE] Using GPIO#%d as RST.\n", fpc->rst_gpio);
 
 	/*--------------------fpc_pwr--------------------*/
 	rc = of_property_read_u32(node, "power-type", &fpc->power_type);
 	if (rc < 0) {
-		fpc_debug(ERR_LOG, "%s:Power type get failed from dts, ret=%d\n", __func__, rc);
+		fpc_debug(ERR_LOG, "[PROBE] Power type get failed from dts, ret=%d\n", rc);
 	}
 
-	fpc_debug(INFO_LOG, "%s:power type[%d]\n", __func__, fpc->power_type);
+	fpc_debug(INFO_LOG, "[PROBE] power type[%d]\n", fpc->power_type);
 
 	if (fpc->power_type == 1) {
 		/* get power voltage from dts config */
 		rc = of_property_read_u32(node, "power-voltage", &fpc->power_voltage);
 		if (rc < 0) {
-			fpc_debug(ERR_LOG, "Power voltage get failed from dts, ret=%d\n", rc);
+			fpc_debug(ERR_LOG, "[PROBE] Power voltage get failed from dts, ret=%d\n", rc);
 		}
 
-		fpc_debug(INFO_LOG, "%s:Power voltage[%d]\n", __func__, fpc->power_voltage);
+		fpc_debug(INFO_LOG, "[PROBE] Power voltage[%d]\n", fpc->power_voltage);
 	} else {
 		fpc->pwr_gpio = of_get_named_gpio(node, "fpc_vdd", 0);
 		if (!gpio_is_valid(fpc->pwr_gpio)) {
-			fpc_debug(ERR_LOG, "%s:get name fpc_vdd failed\n", __func__);
+			fpc_debug(ERR_LOG, "[PROBE] get name fpc_vdd failed\n");
 			goto exit;
 		}
 
-		fpc_debug(INFO_LOG, "%s:pwr_gpio[%d]\n", __func__, fpc->pwr_gpio);
+		fpc_debug(INFO_LOG, "[PROBE] pwr_gpio[%d]\n", fpc->pwr_gpio);
 	}
 
 	fpc->wakeup_enabled = false;
@@ -618,12 +727,18 @@ int fpc_probe(struct platform_device *pldev)
 
 	rc = sysfs_create_group(&dev->kobj, &fpc_attribute_group);
 	if (rc) {
-		fpc_debug(ERR_LOG, "could not create sysfs\n");
+		fpc_debug(ERR_LOG, "[PROBE] could not create sysfs\n");
 		goto exit;
 	}
 
-	fpc_debug(INFO_LOG, "%s: ok\n", __func__);
+	end_time = ktime_get_boottime();
+
+	fpc_debug(INFO_LOG, "[PROBE] end_time %lld, [CONSUME] %lld ms.\n", end_time, ktime_ms_delta(end_time, start_time));
+
+	return 0;
+
 exit:
+	fpc_debug(INFO_LOG, "[PROBE] failed\n");
 	return rc;
 }
 
@@ -678,7 +793,7 @@ static struct platform_driver fpc_plat_driver = {
 
 int fpc_init(void)
 {
-	fpc_debug(INFO_LOG, "%s enter! driver version:%s\n", __func__, FPC_DRIVER_VERSION);
+	fpc_debug(INFO_LOG, "%s enter! driver_time:2024-2-6\n", __func__);
 
 #if defined(USE_SPI_BUS)
 	fpc_debug(INFO_LOG, "%s:spi_register_driver", __func__);

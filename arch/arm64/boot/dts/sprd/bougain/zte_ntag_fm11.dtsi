@@ -1,0 +1,6 @@
+/ {
+	ntag_fm11_gpio {
+		ntag-irq-gpio = <&ap_gpio 127 0>;
+		ntag-reset-gpio = <&ap_gpio 190 0>;
+	};
+};

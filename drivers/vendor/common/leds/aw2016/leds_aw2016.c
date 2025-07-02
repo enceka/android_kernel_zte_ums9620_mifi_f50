@@ -564,6 +564,8 @@ static void aw2016_dance_work(struct work_struct *work)
     /* incoming call effect --> flash DANCE_FLASH_TIMES times + delay DANCE_SLEEP_MS */
     AW_LOG("%s incoming call effect enter!\n", __func__);
     for (i = 0; led->dance_work_state == WORK_RUNNING; i++) {
+        int j = 0;
+
         aw2016_set_led_sync_cfg(led, AW2016_LED_BREATH_MODE_MASK);
         led->pdata->repeat_times = DANCE_FLASH_TIMES;
         aw2016_set_timings(led);
@@ -583,7 +585,12 @@ static void aw2016_dance_work(struct work_struct *work)
             break;
         }
 
-        mdelay(DANCE_SLEEP_MS);
+        for (j = 0; j < 10; j++) {
+            if (led->dance_work_state != WORK_RUNNING)
+                break;
+            mdelay(DANCE_SLEEP_MS / 10);
+        }
+
         if ((flash_times > 0) && (i == (flash_times - 1))) {
             break;
         }

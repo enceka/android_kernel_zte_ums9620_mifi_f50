@@ -44,7 +44,11 @@
 #define OBREG1_OFFSET_ADDR	(0x10000 + (1 * 0x200))
 #define IBREG1_OFFSET_ADDR	(0x10000 + (1 * 0x200) + 0x100)
 
-#define MSI_IRQ_INT_EN_ALL      0xffffffff
+#define PCI_DEBUG0_OFFSET			0x728
+#define PCI_DEBUG1_OFFSET			0x72C
+#define PCI_MSI_CTRL_INT_EN_OFFSET	0x828
+#define MSI_IRQ_INT_EN_ALL		0xffffffff
+
 #define EP_IBAR0_BASE_M3E		0X40800000
 #define EDMA_GLB_REG_BASE_M3E	0x600000
 #define EDMA_CHN_REG_BASE_M3E	0x601000
@@ -215,9 +219,11 @@ void sprd_pcie_reset(void *wcn_dev);
 int sprd_pcie_scan_card(void *wcn_dev);
 void sprd_pcie_register_scan_notify(void *func);
 void sprd_pcie_remove_card(void *wcn_dev);
+void sprd_pcie_debug_point_show(void);
 u32 sprd_pcie_read_reg32(struct wcn_pcie_info *priv, int offset);
 void sprd_pcie_write_reg32(struct wcn_pcie_info *priv, u32 reg_offset,
 			   u32 value);
+int sprd_pcie_fw_push_cancel(void);
 int wcn_get_edma_status(void);
 void wcn_set_tx_complete_status(int flag);
 int wcn_get_tx_complete_status(void);

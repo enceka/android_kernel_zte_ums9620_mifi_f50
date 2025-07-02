@@ -621,6 +621,8 @@ static void dance_work_func(struct work_struct *work)
 		}
 	} else {
 		while (aw210xx->dance_state == WORK_RUNNING) {
+			int j = 0;
+
 			/* set sl */
 			aw210xx_i2c_write(aw210xx, AW210XX_REG_GSLR, aw210xx->red);
 			aw210xx_i2c_write(aw210xx, AW210XX_REG_GSLG, aw210xx->green);
@@ -649,7 +651,11 @@ static void dance_work_func(struct work_struct *work)
 			if (aw210xx->dance_state != WORK_RUNNING)
 				break;
 
-			mdelay(aw210xx->dance_sleep_ms);
+			for (j = 0; j < 10; j++) {
+				if (aw210xx->dance_state != WORK_RUNNING)
+					break;
+				mdelay(aw210xx->dance_sleep_ms / 10);
+			}
 
 			if ((aw210xx->flash_times) && (++i >= aw210xx->flash_times))
 				break;

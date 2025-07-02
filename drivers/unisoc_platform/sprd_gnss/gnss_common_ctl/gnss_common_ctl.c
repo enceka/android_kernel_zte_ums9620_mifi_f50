@@ -27,6 +27,7 @@
 #include <linux/regmap.h>
 #include <linux/slab.h>
 #include <linux/sysfs.h>
+#include <linux/notifier.h>
 #include <misc/wcn_bus.h>
 
 #include "gnss_common.h"
@@ -608,6 +609,26 @@ static struct miscdevice gnss_common_ctl_miscdev = {
 	.fops = NULL,
 };
 
+static int gnss_reset(struct notifier_block *this, unsigned long ev, void *ptr)
+{
+	struct device *dev = gnss_common_ctl_dev.dev;
+
+ 	char *envp[3] = {
+ 		[0] = "SOURCE=unisocgnss",
+ 		[1] = "EVENT=FW_ERROR",
+ 		[2] = NULL,
+ 	};
+
+	dev_info(dev, "%s: reset callback coming\n", __func__);
+	kobject_uevent_env(&gnss_common_ctl_miscdev.this_device->kobj, KOBJ_CHANGE, envp);
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block gnss_reset_block = {
+	.notifier_call = gnss_reset,
+};
+
 static int gnss_common_ctl_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -650,6 +671,7 @@ static int gnss_common_ctl_probe(struct platform_device *pdev)
 			__func__);
 		goto err_attr_failed;
 	}
+	atomic_notifier_chain_register(&wcn_reset_notifier_list,&gnss_reset_block);
 
 #ifdef GNSS_SINGLE_MODULE
 	dev_err(&pdev->dev, "%s single ko\n", __func__);
@@ -676,6 +698,7 @@ err_attr_failed:
 
 static int gnss_common_ctl_remove(struct platform_device *pdev)
 {
+	atomic_notifier_chain_unregister(&wcn_reset_notifier_list, &gnss_reset_block);
 	sysfs_remove_group(&gnss_common_ctl_miscdev.this_device->kobj,
 				&gnss_common_ctl_group);
 

@@ -31,6 +31,9 @@ struct tpvendor_t gcore_vendor_l[] = {
 	{GTP_VENDOR_ID_3, GTP_VENDOR_3_NAME},
 	{VENDOR_END, "Unknown"},
 };
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+bool enable_knuckle;
+#endif
 
 int gcore_get_fw(void)
 {
@@ -100,7 +103,7 @@ static int gcore_tp_fw_upgrade(struct ztp_device *cdev, char *fw_name, int fwnam
 	int ret = 0;
 
 	if (gcore_tp_requeset_firmware() < 0) {
-		GTP_ERROR("Request from file '%s' failed");
+		GTP_ERROR("Get firmware from adb upgrade failed");
 		goto error_fw_upgrade;
 	}
 	gcore_request_firmware_update_work(NULL);
@@ -141,6 +144,147 @@ static int gcore_set_tp_suspend(struct ztp_device *cdev, u8 suspend_node, int en
 	}
 	return 0;
 }
+
+#ifdef GTP_GET_NOISE
+static int gcore_data_request(s16 *frame_data_words, enum tp_test_type  test_type)
+{
+	struct gcore_dev *gdev = fn_data.gdev;
+	int index = 0, ret = 0, i = 0;
+	int total_size = 0;
+	unsigned int x = 0;
+	unsigned int y = 0;
+	unsigned int col = 0;
+	unsigned int row = 0;
+
+	row = RAWDATA_ROW;
+	col = RAWDATA_COLUMN;
+
+	total_size = (RAWDATA_ROW * RAWDATA_COLUMN) * 2;
+	if (gdev->noise_buffer == NULL) {
+		ret = -ENOMEM;
+		goto end;
+	}
+	memset(gdev->noise_buffer, 0, total_size);
+	switch (test_type) {
+	case RAWDATA_TEST:
+		ret = gcore_fw_read_rawdata(gdev->noise_buffer, total_size);
+		break;
+	case DELTA_TEST:
+		ret = gcore_fw_read_diffdata(gdev->noise_buffer, total_size);
+		break;
+	default:
+		GTP_ERROR("%s:the Para is error!\n", __func__);
+		ret = -1;
+		goto end;
+	}
+	if (ret >= 0) {
+		for (i = 0, index = 0; index < total_size/2; i += 2, index++) {
+			frame_data_words[index] = ((gdev->noise_buffer[i + 1] << 8) | gdev->noise_buffer[i]);
+		}
+	}
+	for (y = 0; y < row; y++) {
+		pr_cont("GTP[%2d]", (y + 1));
+		for (x = 0; x < col; x++) {
+			pr_cont("%5d,", frame_data_words[y * col + x]);
+		}
+		pr_cont("\n");
+	}
+end:
+	return ret;
+}
+
+static int  gcore_testing_delta_raw_report(struct ztp_device *cdev, u8 num_of_reports)
+{
+
+	s16 *frame_data_words = NULL;
+	unsigned int col = 0;
+	unsigned int row = 0;
+	unsigned int idx = 0;
+	int retval = 0;
+	int len = 0;
+	int i = 0;
+
+	row = RAWDATA_ROW;
+	col = RAWDATA_COLUMN;
+	GTP_INFO("get tp delta raw data startt!\n");
+	frame_data_words = kcalloc((row * col), sizeof(s16), GFP_KERNEL);
+	if (frame_data_words ==  NULL) {
+		GTP_ERROR("Failed to allocate frame_data_words mem\n");
+		retval = -1;
+		goto MEM_ALLOC_FAILED;
+	}
+	for (idx = 0; idx < num_of_reports; idx++) {
+		len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len,
+				"frame: %d, TX:%d  RX:%d\n", idx, row, col);
+		retval = gcore_data_request(frame_data_words, RAWDATA_TEST);
+		if (retval < 0) {
+			GTP_ERROR("data_request failed!");
+			goto DATA_REQUEST_FAILED;
+		}
+		len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len,
+				"RawData:\n");
+		for (i = 0; i < row * col; i++) {
+			len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len,
+				"%5d,", frame_data_words[i]);
+			if ((i + 1) % col == 0)
+				len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len, "\n");
+		}
+		len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len, "\n\n");
+		retval = gcore_data_request(frame_data_words, DELTA_TEST);
+		if (retval < 0) {
+			GTP_ERROR("data_request failed!");
+			goto DATA_REQUEST_FAILED;
+		}
+		len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len,
+				"DiffData:\n");
+		for (i = 0; i < row * col; i++) {
+			len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len,
+				"%5d,", frame_data_words[i]);
+			if ((i + 1) % col == 0)
+				len += snprintf((char *)(cdev->tp_firmware->data + len), RT_DATA_LEN * 10 - len, "\n");
+		}
+	}
+	gcore_fw_mode_set_proc2(0);
+
+	retval = 0;
+	msleep(20);
+	GTP_INFO("get tp delta raw data end!\n");
+DATA_REQUEST_FAILED:
+	kfree(frame_data_words);
+	frame_data_words = NULL;
+MEM_ALLOC_FAILED:
+	return retval;
+}
+
+static int gcore_tpd_get_noise(struct ztp_device *cdev)
+{
+	int retval = 0;
+	struct gcore_dev *gdev = fn_data.gdev;
+	int total_size = 0;
+
+	if (gdev->tp_suspend)
+		return -EIO;
+
+	if(tp_alloc_tp_firmware_data(10 * RT_DATA_LEN)) {
+		GTP_ERROR(" alloc tp firmware data fail");
+		return -ENOMEM;
+	}
+	total_size = (RAWDATA_ROW * RAWDATA_COLUMN) * 2;
+	if (gdev->noise_buffer == NULL) {
+		gdev->noise_buffer = kzalloc(total_size, GFP_KERNEL);
+		if (gdev->noise_buffer == NULL) {
+			GTP_ERROR(" alloc gdev->noise_buffer fail");
+			return -ENOMEM;
+		}
+	}
+	retval = gcore_testing_delta_raw_report(cdev, 5);
+	if (retval < 0) {
+		GTP_ERROR("%s: get_raw_noise failed!\n",  __func__);
+		return retval;
+	}
+	return 0;
+}
+#endif
 
 static int tpd_test_cmd_store(struct ztp_device *cdev)
 {
@@ -217,7 +361,7 @@ static int gcore_set_display_rotation(struct ztp_device *cdev, int mrotation)
 		gcore_delay_fw_event_notify(FW_EDGE_0);
 		break;
 	case mRotatin_270:
-		gcore_delay_fw_event_notify(FW_EDGE_90);
+		gcore_delay_fw_event_notify(FW_EDGE_270);
 		break;
 	default:
 		break;
@@ -280,9 +424,7 @@ static int tpd_enable_wakegesture(struct ztp_device *cdev, int enable)
 
 	if (gdev->tp_suspend) {
 		cdev->tp_suspend_write_gesture = true;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SUSPEND_GESTURE_OPEN_NO);
-#endif
 	}
 	gdev->gesture_wakeup_en = enable;
 	return enable;
@@ -340,6 +482,130 @@ static int tpd_gtp_shutdown(struct ztp_device *cdev)
 	return 0;
 }
 
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+int gcore_ts_read_roi_diffdata(u8 *data)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	GTP_INFO("%s enter, roi_diffdata_switch = %d", __func__, cdev->roi_diffdata_switch);
+	if (!cdev->roi_diffdata_switch || !cdev->touch_press) {
+		return -EIO;
+	}
+
+	if (!data) {
+		return -EINVAL;
+	}
+
+	GTP_INFO("%s collect_diffdata_enable = %d", __func__, cdev->collect_diffdata_enable);
+	if (cdev->collect_diffdata_enable) {
+		if (cdev->wait_collect_completion && (cdev->get_diffdata_count >= COLLECT_MAX_COUNT)) {
+			GTP_INFO("collect diffdata complete");
+			cdev->wait_collect_completion = false;
+			//complete(&cdev->diffdata_collect_completion);
+			return 0;
+		}
+	}
+
+	GTP_INFO("%s get_diffdata_count = %d", __func__, cdev->get_diffdata_count);
+	if (cdev->get_diffdata_count == 0) {
+		memset(cdev->roi_diffdata, 0, ROI_DIFFDATA_LENGTH);
+		memset(cdev->collect_diffdata, 0, ROI_DIFFDATA_LENGTH * COLLECT_MAX_COUNT);
+	}
+
+	if (cdev->get_diffdata_count >= COLLECT_MAX_COUNT) {
+		return 0;
+	}
+
+	memcpy(cdev->roi_diffdata, data, ROI_DIFFDATA_LENGTH);
+
+	memcpy(cdev->collect_diffdata + cdev->get_diffdata_count * ROI_DIFFDATA_LENGTH,
+		 cdev->roi_diffdata, ROI_DIFFDATA_LENGTH);
+	tpd_get_hex_diffdata(cdev);
+	cdev->get_diffdata_count++;
+
+	GTP_INFO("%s exit", __func__);
+	return 0;
+}
+
+static unsigned char *gcore_ts_get_roi_diffdata(struct ztp_device *cdev)
+{
+	GTP_INFO("%s enter", __func__);
+	if (!cdev->roi_diffdata_switch) {
+		GTP_ERROR("Get ROI diffdata, switch = OFF");
+		return NULL;
+	}
+	if (cdev->collect_diffdata_enable) {
+		GTP_INFO("Get collect_diffdata");
+		return (unsigned char *)cdev->collect_diffdata;
+	} else {
+		GTP_INFO("Get ROI diffdata");
+		return (unsigned char *)cdev->roi_diffdata;
+	}
+}
+
+static int gcore_ts_set_roi_switch(u8 roi_switch)
+{
+	int ret = 0;
+	GTP_INFO("%s enter, roi_switch = %d", __func__, roi_switch);
+
+	if (roi_switch) {
+		GTP_INFO("%s enable_knuckle = true", __func__);
+		enable_knuckle = true;
+	} else {
+		GTP_INFO("%s enable_knuckle = false", __func__);
+		enable_knuckle = false;
+	}
+
+	GTP_INFO("%s exit, ret = %d", __func__, ret);
+	return ret;
+}
+
+static int gcore_ts_send_roi_cmd(struct ztp_device *cdev, enum ts_cmd cmd)
+{
+	int ret = 0;
+	GTP_INFO("%s enter, cmd = %d", __func__, cmd);
+
+	switch (cmd) {
+	case TS_CMD_READ:
+		GTP_INFO("roi_diffdata_switch = %d", cdev->roi_diffdata_switch);
+		break;
+
+	case TS_CMD_WRITE:
+		ret = gcore_ts_set_roi_switch(!!cdev->roi_diffdata_switch);
+		break;
+
+	default:
+		GTP_ERROR("unknown cmd");
+		ret = -EINVAL;
+		break;
+	}
+	return ret;
+
+	GTP_INFO("%s exit\n", __func__);
+}
+#endif
+
+static int gcore_bbat_test(struct ztp_device *cdev)
+{
+	int ret = 0;
+
+/*tp int test*/
+	cdev->bbat_test_enter = true;
+	cdev->bbat_int_test = false;
+	cdev->bbat_test_result = 0;
+	reinit_completion(&cdev->bbat_test_completion);
+	gcore_delay_fw_event_notify(FW_EDGE_0);
+	if (cdev->bbat_int_test == false) {
+		ret = wait_for_completion_timeout(&cdev->bbat_test_completion, msecs_to_jiffies(700));
+		if (!ret) {
+			GTP_INFO("tp int test fail");
+			cdev->bbat_test_result = TP_INT_BAAT_TEST_FAIL;
+		}
+	}
+	cdev->bbat_test_enter = false;
+	return cdev->bbat_test_result;
+}
+
 int gcore_register_fw_class(void)
 {
 	gcore_get_fw();
@@ -362,10 +628,19 @@ int gcore_register_fw_class(void)
 	tpd_cdev->tp_self_test = tpd_test_cmd_store;
 	tpd_cdev->get_tp_self_test_result = tpd_test_cmd_show;
 	tpd_cdev->tpd_shutdown = tpd_gtp_shutdown;
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	tpd_cdev->get_roi_diffdata = gcore_ts_get_roi_diffdata;
+	tpd_cdev->tp_send_roi_cmd = gcore_ts_send_roi_cmd;
+#endif
 	tpd_cdev->max_x = TOUCH_SCREEN_X_MAX;
 	tpd_cdev->max_y = TOUCH_SCREEN_Y_MAX;
+	tpd_cdev->input = fn_data.gdev->input_device;
 	tpd_cdev->tp_resume_before_lcd_cmd = true;
-
+#ifdef GTP_GET_NOISE
+	tpd_cdev->get_noise = gcore_tpd_get_noise;
+	fn_data.gdev->noise_buffer = NULL;
+#endif
+	tpd_cdev->tp_bbat_test = gcore_bbat_test;
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	zlog_tp_dev.device_name = gcore_vendor_name;
 	zlog_tp_dev.ic_name = "gcore_tp";

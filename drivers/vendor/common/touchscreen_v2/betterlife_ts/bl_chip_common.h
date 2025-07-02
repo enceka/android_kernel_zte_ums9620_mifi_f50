@@ -498,14 +498,16 @@ enum apk_cmd {
 #if defined(BTL_DEBUG_SUPPORT)
 extern bool LogEn;
 
-#define BTL_TAG                        "[btl_tp]"
+#define BTL_TAG                        "[ZTE_LDD_TP][TPD_BTL]"
 #define BTL_ERROR(fmt, arg...) do {\
 					if (LogEn)\
 						pr_err(BTL_TAG "<%s><%d>" fmt "\n", __func__, __LINE__, ##arg);\
+						tpd_save_last_log(BTL_TAG "<%s><%d>" fmt "\n", __func__, __LINE__, ##arg);\
 					} while (0)
 #define BTL_DEBUG(fmt, arg...) do {\
 					if (LogEn)\
 						pr_notice(BTL_TAG "<%s><%d>" fmt "\n", __func__, __LINE__, ##arg);\
+						tpd_save_last_log(BTL_TAG "<%s><%d>" fmt "\n", __func__, __LINE__, ##arg);\
 					} while (0)
 #define BTL_DEBUG_FUNC() do {\
 							if (LogEn)\

@@ -19,6 +19,9 @@
 #include <linux/version.h>
 #include <linux/uaccess.h>
 #include <linux/clk.h>
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+#include <vendor/comdef/zlog_common_base.h>
+#endif
 
 #define RELEASE_WAKELOCK_W_V "release_wakelock_with_verification"
 #define RELEASE_WAKELOCK "release_wakelock"
@@ -33,7 +36,9 @@ struct fpc_gpio_info;
 struct fpc_data {
 	struct device *dev;
 	struct platform_device *pldev;
-
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	struct zlog_client *zlog_fp_client;
+#endif
 	int irq_gpio;
 	int rst_gpio;
 	int pwr_gpio;
@@ -56,24 +61,9 @@ struct fpc_data {
 	const struct fpc_gpio_info *hwabs;
 
 	struct mutex mutex;
+	ktime_t irq_start_time;
 	
 };
-
-typedef enum {
-	ERR_LOG = 0,
-	WARN_LOG,
-	INFO_LOG,
-	DEBUG_LOG,
-	ALL_LOG,
-} fpc1020_debug_level_t;
-
-static fpc1020_debug_level_t fpc1020_debug_level = INFO_LOG;
-
-#define fpc_debug(level, fmt, args...) do { \
-			if (fpc1020_debug_level >= level) {\
-				pr_err("[fpc_info] " fmt, ##args); \
-			} \
-		} while (0)
 
 struct fpc_gpio_info {
 	int (*init)(struct fpc_data *fpc);

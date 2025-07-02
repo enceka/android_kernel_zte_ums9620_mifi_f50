@@ -6,3 +6,6 @@ config ZTE_LCDBL_I2C_CTRL_VSP_VSN
 config ZTE_LCDBL_I2C_CTRL_VSP_VSN_ENHANCE
         bool "Support for ZTE vsp vsn power enhance ctrl"
         default n
+config ZTE_LCDBL_I2C_CTRL_VSP_VSN_200MA_ENHANCE
+        bool "Support for ZTE vsp vsn power 200ma enhance ctrl"
+        default n

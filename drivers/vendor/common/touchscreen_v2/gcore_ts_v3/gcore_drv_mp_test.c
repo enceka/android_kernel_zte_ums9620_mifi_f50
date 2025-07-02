@@ -306,6 +306,7 @@ int gcore_parse_mp_test_ini(struct gcore_mp_data *mp_data)
 		GTP_DEBUG("firmware size is:%d", fw->size);
 		if (!buff) {
 			GTP_ERROR("buffer kzalloc fail");
+			release_firmware(fw);
 			return -EPERM;
 		}
 		memcpy(buff, fw->data, fw->size);

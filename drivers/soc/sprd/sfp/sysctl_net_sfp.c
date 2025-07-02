@@ -46,6 +46,13 @@ int sysctl_net_sfp_tether_scheme  __read_mostly = 1;
 int sysctl_tcp_aging_time  __read_mostly = DEFAULT_SFP_TCP_AGING_TIME;
 int sysctl_udp_aging_time  __read_mostly = DEFAULT_SFP_UDP_AGING_TIME;
 
+void set_sfp_enable(bool enable)
+{
+	sysctl_net_sfp_enable = enable ? 1 : 0;
+	FP_PRT_DBG(FP_PRT_INFO, "set enable to %d\n", sysctl_net_sfp_enable);
+}
+EXPORT_SYMBOL(set_sfp_enable);
+
 static struct ctl_table net_sfp_table[] = {
 #if IS_ENABLED(CONFIG_NET)
 	{

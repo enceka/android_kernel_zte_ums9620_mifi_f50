@@ -11,6 +11,8 @@
 #include <dt-bindings/mfd/sprd,ump9620-regs.h>
 #include <dt-bindings/mfd/sprd,ump9620-mask.h>
 #include "zte_nfc_tulip.dtsi"
+/*#include <dt-bindings/wdv/wdv.h>*/
+
 / {
 
 	model = "Spreadtrum UMS9620 2H10 Board";
@@ -249,6 +251,7 @@
 		reg = <0x0 0xb0000000 0x0 0x009e4000>;
 	};
 
+#ifdef BSP_KERNEL_CONFIG_WIDEVINE_L1
 	/*Set 8M after widevine to prevent memory out of bounds*/
 	widevine_reserved: widevine@df400000 {
 		compatible = "shared-dma-pool";
@@ -260,6 +263,7 @@
 	oemcrypto_reserved: oemcrypto@c3100000 {
 		reg = <0x0 0xc3100000 0x0 0x01100000>;
 	};
+#endif
 
 	ai_reserved: ai@ff410000 {
 		reg = <0x0 0xff410000 0x0 0x00600000>;
@@ -318,13 +322,14 @@
 		type = <2>;
 		memory-region = <&ise_med_reserved>;
 	};
-
+#ifdef BSP_KERNEL_CONFIG_WIDEVINE_L1
 	heap@7 {
 		reg = <7>;
 		label = "carveout_oemcrypto";
 		type = <2>;
 		memory-region = <&oemcrypto_reserved>;
 	};
+#endif
 };
 
 &adi_bus {

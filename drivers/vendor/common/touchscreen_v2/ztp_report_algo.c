@@ -6,7 +6,6 @@
 #include <linux/err.h>
 #include <linux/input.h>
 #include <linux/input/mt.h>
-#include <linux/delay.h>
 #include <linux/vmalloc.h>
 #include <linux/uaccess.h>
 #include <linux/slab.h>
@@ -41,6 +40,7 @@ typedef struct point_fifo {
 	bool is_moving_in_limit_area;
 	bool finger_down;
 	bool edge_finger_down;
+	bool temp_ctrl_zone_down;
 	bool limit_area_log_print;
 	bool is_inside_finger_down;
 	bool jitter_check;
@@ -61,8 +61,7 @@ tpd_point_fifo_t point_report_info[MAX_POINTS_SUPPORT];
 #define tpd_idn_report_work(id)\
 static void tpd_id##id##_report_work(struct work_struct *work)\
 {\
-	tpd_point_fifo_t *point = &point_report_info[id];\
-	edge_long_press_up(point->input, id);\
+	edge_long_press_up(tpd_cdev->input, id);\
 }
 
 tpd_idn_report_work(0)
@@ -144,7 +143,7 @@ static bool point_is_in_limit_area(u16 x, u16 y)
 		if ((x  < cdev->edge_report_limit[0]) || (x > cdev->max_x - cdev->edge_report_limit[1]))
 			return true;
 		if (point_in_report_judge_area(x, y) && is_have_inside_point_down()) {
-			TPD_DMESG("have other point down and tpd Press in judge area: x = %d, y = %d\n", x, y);
+			TPD_DBG("have other point down and tpd Press in judge area: x = %d, y = %d\n", x, y);
 			return true;
 		}
 		if (cdev->edge_limit_pixel_level > 0) {
@@ -178,6 +177,130 @@ static bool point_in_long_pess_suppression_area(u16 x, u16 y)
 	}
 	return false;
 }
+
+static bool is_ghost_ignore_edge_area(u16 x, u16 y)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	if (cdev->display_rotation == mRotatin_90 || cdev->display_rotation == mRotatin_270) {
+		if (y < cdev->ghost_check_ignore_edge_area ||  y > cdev->max_y - cdev->ghost_check_ignore_edge_area
+			 || x < cdev->ghost_check_ignore_edge_area || x > cdev->max_x - cdev->ghost_check_ignore_edge_area) {
+			TPD_DBG("in ghost ignore edge area");
+			return true;
+		}
+	} else {
+		if (x < cdev->ghost_check_ignore_edge_area || x > cdev->max_x - cdev->ghost_check_ignore_edge_area) {
+			TPD_DBG("in ghost ignore edge area");
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool is_ghost_ignore_corner_area(u16 x, u16 y)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	if (cdev->display_rotation == mRotatin_90 || cdev->display_rotation == mRotatin_270) {
+		if (((x < cdev->ghost_check_ignore_corner_y) || (x >  cdev->max_x - cdev->ghost_check_ignore_corner_y))
+			 && ((y < cdev->ghost_check_ignore_corner_x) || (y > cdev->max_y - cdev->ghost_check_ignore_corner_x))) {
+			TPD_DBG("in ghost_ignore_corner_area");
+			return true;
+		}
+	} else {
+		if (cdev->display_rotation == mRotatin_0) {
+			if ((y > cdev->max_y - cdev->ghost_check_ignore_corner_y) 
+				&& ((x < cdev->ghost_check_ignore_corner_x) || (x >  cdev->max_x - cdev->ghost_check_ignore_corner_x))) {
+				TPD_DBG("in ghost_ignore_corner_area");
+				return true;
+			}
+		}
+		if (cdev->display_rotation == mRotatin_180) {
+			if ((y < cdev->ghost_check_ignore_corner_y) 
+				&& ((x < cdev->ghost_check_ignore_corner_x) || (x >  cdev->max_x - cdev->ghost_check_ignore_corner_x))) {
+				TPD_DBG("in ghost_ignore_corner_area");
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+static bool ghost_check_area(tpd_point_fifo_t *point)
+{
+	if (is_ghost_ignore_edge_area(point->first_report_point_data.x, point->first_report_point_data.y)
+		|| is_ghost_ignore_corner_area(point->first_report_point_data.x, point->first_report_point_data.y)) {
+			return false;
+		}
+	return true;
+}
+
+#ifdef CONFIG_TOUCHSCREEN_TEMP_CTRL_ZONE_NOTIFY
+static temp_control_zeon(int x, int y)
+{
+	int ret = 0;
+	struct ztp_device *cdev = tpd_cdev;
+
+	if ((cdev->max_x / 2 - cdev->max_x / 10 < x) &&
+	  	(cdev->max_x / 2 + cdev->max_x / 10 > x) &&
+		(cdev->max_y  - cdev->max_y / 10 < y) ) {
+		ret = 1;
+	}
+
+	return ret;
+}
+
+static bool temp_control_zeon_down(void)
+{
+	int i = 0;
+
+	for (i = 0; i < MAX_POINTS_SUPPORT; i++) {
+		if (point_report_info[i].temp_ctrl_zone_down)
+			return true;
+	}
+	return false;
+}
+
+static void temp_control_zone_check_reset(void)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	if (cdev->start_temp_ctrl_timer) {
+		cancel_delayed_work_sync(&cdev->temp_ctr_zone_work);
+		TPD_DMESG("cancel temp control zone work");
+		cdev->start_temp_ctrl_timer = false;
+	}
+	if (cdev->notify_temp_ctrl_zone_down) {
+		tpd_notifier_call_chain(TEMP_CTRL_ZONE_UP);
+		TPD_DMESG("notify temp control zone up");
+		cdev->notify_temp_ctrl_zone_down = false;
+	}
+}
+
+static int temp_control_zone_check(tpd_point_fifo_t *point, u16 x, u16 y)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	if (!cdev->charger_mode) {
+		temp_control_zone_check_reset();
+		return 0;
+	}
+	if (temp_control_zeon(x, y))
+		point->temp_ctrl_zone_down = true;
+	else
+		point->temp_ctrl_zone_down = false;
+	if (!cdev->notify_temp_ctrl_zone_down && !cdev->start_temp_ctrl_timer  && point->temp_ctrl_zone_down) {
+		queue_delayed_work(cdev->tpd_report_wq, &cdev->temp_ctr_zone_work, msecs_to_jiffies(30000));
+		TPD_DMESG("start temp control zone timer");
+		cdev->start_temp_ctrl_timer = true;
+	} else if (!point->temp_ctrl_zone_down) {
+		if (!temp_control_zeon_down()) {
+			temp_control_zone_check_reset();
+		}
+	}
+	return 0;
+}
+#endif
 
 static bool is_long_pess_clean_area(u16 x, u16 y)
 {
@@ -228,6 +351,10 @@ static bool is_report_point(u16 x, u16 y, u16 id, u8 touch_major, u8  pressure)
 	struct ztp_device *cdev = tpd_cdev;
 	u16 limit_pixel = cdev->max_x / 10;
 
+	if (tpd_cdev->input == NULL) {
+		TPD_DMESG("tpd_cdev->input is NULL\n");
+		return false;
+	}
 	if (point->is_report_point) {
 		if (is_need_clean_long_pess_area_down(point, x, y) == false)
 			return true;
@@ -246,7 +373,7 @@ static bool is_report_point(u16 x, u16 y, u16 id, u8 touch_major, u8  pressure)
 					point->edge_down_timer = jiffies;
 					return true;
 				}
-				tpd_touch_release(point->input,  id);
+				tpd_touch_release(tpd_cdev->input,  id);
 				point->mistake_touch_check = false;
 				return false;
 			} else {
@@ -392,8 +519,8 @@ static void edge_long_press_up(struct input_dev *input, u16 id)
 	input_sync(input);
 	mutex_unlock(&cdev->report_mutex);
 	point->edge_finger_down = false;
-	TPD_DMESG("%s:tpd touch up id: %d, coord [%d:%d]\n",
-		__func__, id, point->point_data[0].x, point->point_data[0].y);
+	TPD_DMESG("tpd touch up id: %d, coord [%d:%d]\n",
+		id, point->point_data[0].x, point->point_data[0].y);
 
 }
 
@@ -428,12 +555,22 @@ void tpd_touch_press(struct input_dev *input, u16 x, u16 y, u16 id, u8 touch_maj
 	}
 
 	if (input == NULL || id >= MAX_POINTS_SUPPORT) {
-		TPD_DMESG("%s:input is NULL? id = %d", __func__, id);
+		TPD_DMESG("input is NULL? id = %d", id);
 		return;
 	}
+	if (tpd_cdev->input == NULL) {
+		tpd_cdev->input = input;
+		TPD_DMESG("tpd_cdev->input is NULL\n");
+		return;
+	}
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	cdev->touch_press = true;
+#endif
 	mutex_lock(&cdev->report_down_mutex);
 	point = &point_report_info[id];
-	point->input = input;
+#ifdef CONFIG_TOUCHSCREEN_TEMP_CTRL_ZONE_NOTIFY
+	temp_control_zone_check(point, x, y);
+#endif
 	if (is_report_point(x, y, id, touch_major, pressure) == false) {
 		mutex_unlock(&cdev->report_down_mutex);
 		return;
@@ -519,9 +656,12 @@ void tpd_touch_release(struct input_dev *input, u16 id)
 	u8 ghost_check_time = 25;
 
 	if (input == NULL || id >= MAX_POINTS_SUPPORT) {
-		TPD_DMESG("%s:input is NULL? id = %d", __func__, id);
+		TPD_DMESG("input is NULL? id = %d", id);
 		return;
 	}
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	cdev->touch_press = false;
+#endif
 	point = &point_report_info[id];
 	if (point->finger_down) {
 		mutex_lock(&cdev->report_mutex);
@@ -543,11 +683,13 @@ void tpd_touch_release(struct input_dev *input, u16 id)
 			} else {
 				ghost_check_time = cdev->ghost_check_single_time;
 			}
-			if (point->down_up_time < ghost_check_time) {
-				point->single_ghost_detect_count++;
-				point->multi_ghost_detect_count++;
-			} else {
-				point->multi_ghost_detect_count++;
+			if (ghost_check_area(point)) {
+				if (point->down_up_time < ghost_check_time) {
+					point->single_ghost_detect_count++;
+					point->multi_ghost_detect_count++;
+				} else {
+					point->multi_ghost_detect_count++;
+				}
 			}
 			TPD_DMESG("touch id(%d):single_ghost_detect_count:%d,multi_ghost_detect_count:%d",
 				id, point->single_ghost_detect_count, point->multi_ghost_detect_count);
@@ -568,6 +710,15 @@ void tpd_touch_release(struct input_dev *input, u16 id)
 	point->jitter_check = false;
 	point->mistake_touch_check = false;
 	point->cancel_clean_edge_area_ponit = false;
+#ifdef CONFIG_TOUCHSCREEN_TEMP_CTRL_ZONE_NOTIFY
+	point->temp_ctrl_zone_down = false;
+	if (!temp_control_zeon_down()) {
+		temp_control_zone_check_reset();
+	}
+#endif
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	tpd_clean_diffdata();
+#endif
 }
 EXPORT_SYMBOL_GPL(tpd_touch_release);
 
@@ -587,7 +738,7 @@ bool tp_ghost_check(void)
 		TPD_DMESG("log_buffer malloc fail");
 		return false;
 	}
-	TPD_DMESG("%s:enter", __func__);
+	TPD_DMESG("enter");
 	for (i = 0; i < MAX_POINTS_SUPPORT; i++) {
 		if (point_report_info[i].multi_ghost_detect_count > 0) {
 			ghost_point_num ++;
@@ -630,11 +781,11 @@ ghost_point_report_log:
 				point_report_info[i].last_point.y);
 		}
 	};
-	TPD_DMESG("%s:%s", __func__, log_buffer);
+	TPD_DMESG("%s", log_buffer);
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	tpd_print_zlog(log_buffer);
-	tpd_zlog_record_notify(TP_GHOST_ERROR_NO);
 #endif
+	tpd_zlog_record_notify(TP_GHOST_ERROR_NO);
 	vfree(log_buffer);
 	return true;
 }
@@ -656,6 +807,9 @@ void tpd_clean_all_event(void)
 	for (i = 0; i < MAX_POINTS_SUPPORT; i++) {
 		point_report_info[i].finger_down = false;
 		point_report_info[i].edge_finger_down = false;
+#ifdef CONFIG_TOUCHSCREEN_TEMP_CTRL_ZONE_NOTIFY
+		point_report_info[i].temp_ctrl_zone_down = false;
+#endif
 		point_report_info[i].is_report_point = false;
 		point_report_info[i].save_first_down_point = false;
 		point_report_info[i].is_moving_in_limit_area = false;
@@ -666,6 +820,12 @@ void tpd_clean_all_event(void)
 		point_report_info[i].cancel_clean_edge_area_ponit = false;
 		point_report_info[i].edge_area_move = false;
 	}
+#ifdef CONFIG_TOUCHSCREEN_TEMP_CTRL_ZONE_NOTIFY
+	temp_control_zone_check_reset();
+#endif
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	tpd_clean_diffdata();
+#endif
 }
 EXPORT_SYMBOL_GPL(tpd_clean_all_event);
 
@@ -674,22 +834,26 @@ static void edge_point_report(int id)
 	struct ztp_device *cdev = tpd_cdev;
 	tpd_point_fifo_t *point = &point_report_info[id];
 
-	TPD_DMESG("%s:tpd id:%d", __func__, id);
+	TPD_DMESG("tpd id:%d", id);
 	if (!cdev->tpd_report_wq) {
-		TPD_DMESG("%s:tpd_report_wq is null", __func__);
+		TPD_DMESG("tpd_report_wq is null");
 		return;
 	}
 	if (is_have_inside_point_down()) {
-		TPD_DMESG("%s:have inside point down", __func__);
+		TPD_DMESG("have inside point down");
+		return;
+	}
+	if (tpd_cdev->input == NULL) {
+		TPD_DMESG("tpd_cdev->input is NULL\n");
 		return;
 	}
 	mutex_lock(&cdev->report_mutex);
-	tpd_touch_report_nolock(point->input, point->point_data[0].x, point->point_data[0].y,
+	tpd_touch_report_nolock(tpd_cdev->input, point->point_data[0].x, point->point_data[0].y,
 				id, point->point_data[0].touch_major, point->point_data[0].pressure);
-	input_sync(point->input);
+	input_sync(tpd_cdev->input);
 	point->edge_finger_down = true;
-	TPD_DMESG("%s:tpd touch down id: %d, coord [%d:%d]\n",
-		__func__, id, point->point_data[0].x, point->point_data[0].y);
+	TPD_DMESG("tpd touch down id: %d, coord [%d:%d]\n",
+		id, point->point_data[0].x, point->point_data[0].y);
 	mutex_unlock(&cdev->report_mutex);
 
 	switch (id) {
@@ -724,7 +888,7 @@ static void edge_point_report(int id)
 		queue_delayed_work(cdev->tpd_report_wq, &cdev->tpd_report_work9, msecs_to_jiffies(50));
 		break;
 	default:
-		TPD_DMESG("%s:error id %d", __func__, id);
+		TPD_DMESG("error id %d", id);
 	}
 }
 
@@ -733,13 +897,17 @@ static void point_report_reset(int id)
 	tpd_point_fifo_t *point = &point_report_info[id];
 	struct ztp_device *cdev = tpd_cdev;
 
+	if (tpd_cdev->input == NULL) {
+		TPD_DMESG("tpd_cdev->input is NULL\n");
+		return;
+	}
 	if (point->edge_finger_down) {
-		TPD_DMESG("%s:tpd touch up id: %d\n",  __func__, id);
+		TPD_DMESG("tpd touch up id: %d\n", id);
 		point->edge_finger_down = false;
 		mutex_lock(&cdev->report_mutex);
-		input_mt_slot(point->input, id);
-		input_mt_report_slot_state(point->input, MT_TOOL_FINGER, false);
-		input_sync(point->input);
+		input_mt_slot(tpd_cdev->input, id);
+		input_mt_report_slot_state(tpd_cdev->input, MT_TOOL_FINGER, false);
+		input_sync(tpd_cdev->input);
 		mutex_unlock(&cdev->report_mutex);
 		usleep_range(1000, 1100);
 	}
@@ -749,21 +917,42 @@ static void point_report_reset(int id)
 static void ts_point_report_check(struct work_struct *work)
 {
 	int id = 0;
-	struct input_dev *input= point_report_info[0].input;
 	struct ztp_device *cdev = tpd_cdev;
 
-	if (input) {
+	if (tpd_cdev->input) {
 		TPD_DMESG("Release all touch");
 		mutex_lock(&cdev->report_mutex);
 		for (id = MAX_POINTS_SUPPORT - 1; id >= 0; id--) {
-			input_mt_slot(input, id);
-			input_mt_report_slot_state(input, MT_TOOL_FINGER, false);
+			input_mt_slot(tpd_cdev->input, id);
+			input_mt_report_slot_state(tpd_cdev->input, MT_TOOL_FINGER, false);
 		}
-		input_report_key(input, BTN_TOUCH, 0);
-		input_sync(input);
+		input_report_key(tpd_cdev->input, BTN_TOUCH, 0);
+		input_sync(tpd_cdev->input);
 		mutex_unlock(&cdev->report_mutex);
 		tpd_clean_all_event();
 	}
+}
+#endif
+
+#ifdef CONFIG_TOUCHSCREEN_PSENSOR_REPORT_CHECK
+static void ts_psensor_report_check(struct work_struct *work)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	if(cdev->tp_psensor_report_check)
+		cdev->tp_psensor_report_check(cdev);
+}
+#endif
+
+#ifdef CONFIG_TOUCHSCREEN_TEMP_CTRL_ZONE_NOTIFY
+static void temp_ctrl_zone_down_notify(struct work_struct *work)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	tpd_notifier_call_chain(TEMP_CTRL_ZONE_DOWN);
+	TPD_DMESG("notify temp control zone down");
+	cdev->start_temp_ctrl_timer = false;
+	cdev->notify_temp_ctrl_zone_down = true;
 }
 #endif
 
@@ -771,7 +960,7 @@ int tpd_report_work_init(void)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s enter", __func__);
+	TPD_DMESG("enter");
 	cdev->tpd_report_wq = create_singlethread_workqueue("tpd_report_wq");
 
 	if (!cdev->tpd_report_wq) {
@@ -790,9 +979,15 @@ int tpd_report_work_init(void)
 #ifdef CONFIG_TOUCHSCREEN_POINT_REPORT_CHECK
 	INIT_DELAYED_WORK(&cdev->point_report_check_work, ts_point_report_check);
 #endif
+#ifdef CONFIG_TOUCHSCREEN_PSENSOR_REPORT_CHECK
+	INIT_DELAYED_WORK(&cdev->psensor_report_check_work, ts_psensor_report_check);
+#endif
+#ifdef CONFIG_TOUCHSCREEN_TEMP_CTRL_ZONE_NOTIFY
+	INIT_DELAYED_WORK(&cdev->temp_ctr_zone_work, temp_ctrl_zone_down_notify);
+#endif
 	return 0;
 err_create_tpd_report_wq_failed:
-	TPD_DMESG("%s: create tpd report workqueue failed\n", __func__);
+	TPD_DMESG("create tpd report workqueue failed\n");
 	return -ENOMEM;
 
 }
@@ -801,7 +996,7 @@ void tpd_report_work_deinit(void)
 {
 	struct ztp_device *cdev = tpd_cdev;
 
-	TPD_DMESG("%s enter", __func__);
+	TPD_DMESG("enter");
 	cancel_delayed_work_sync(&cdev->tpd_report_work0);
 	cancel_delayed_work_sync(&cdev->tpd_report_work1);
 	cancel_delayed_work_sync(&cdev->tpd_report_work2);
@@ -814,6 +1009,12 @@ void tpd_report_work_deinit(void)
 	cancel_delayed_work_sync(&cdev->tpd_report_work9);
 #ifdef CONFIG_TOUCHSCREEN_POINT_REPORT_CHECK
 	cancel_delayed_work_sync(&cdev->point_report_check_work);
+#endif
+#ifdef CONFIG_TOUCHSCREEN_PSENSOR_REPORT_CHECK
+	cancel_delayed_work_sync(&cdev->psensor_report_check_work);
+#endif
+#ifdef CONFIG_TOUCHSCREEN_TEMP_CTRL_ZONE_NOTIFY
+	cancel_delayed_work_sync(&cdev->temp_ctr_zone_work);
 #endif
 }
 

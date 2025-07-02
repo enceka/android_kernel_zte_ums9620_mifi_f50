@@ -90,8 +90,8 @@ static int sprd_battery_get_batt_id_kohm(struct power_supply *psy, struct sprd_b
 		return ret;
 	}
 
-	batt_id_kohm = DIV_ROUND_CLOSEST((vol * VOL_V_PER_MV * BAT_ID_PULL_UP),
-		(BAT_ID_REF_VOL * VOL_V_PER_MV - vol * VOL_V_PER_MV));
+	batt_id_kohm = DIV_ROUND_CLOSEST((vol * VOL_V_PER_MV * data->batt_id_pullup_kohm),
+		(data->batt_id_ref_vol * VOL_V_PER_MV - vol * VOL_V_PER_MV));
 
 	dev_info(&psy->dev, "%s batt id:%d kohm, vol:%d mv\n", __func__, batt_id_kohm, vol);
 
@@ -103,19 +103,34 @@ int sprd_battery_parse_battery_id(struct power_supply *psy, struct sprd_battery_
 {
 	int len = 0, i = 0;
 	struct device_node *battery_np = NULL;
+	int ret = -1;
 
+	battery_np = of_parse_phandle(psy->of_node, "monitored-battery", 0);
+	if (!battery_np) {
+		dev_err(&psy->dev, "not found battery_np for batt id check\n");
+		return -ENODEV;
+	}
+
+	ret = of_property_read_u32(battery_np, "batt-id-pullup-kohm",
+			     &data->batt_id_pullup_kohm);
+	if (ret) {
+		data->batt_id_pullup_kohm = BAT_ID_PULL_UP;
+		dev_err(&psy->dev, "use default BAT_ID_PULL_UP\n");
+	}
+
+	ret = of_property_read_u32(battery_np, "batt-id-ref-vol",
+			     &data->batt_id_ref_vol);
+	if (ret) {
+		data->batt_id_ref_vol = BAT_ID_REF_VOL;
+		dev_err(&psy->dev, "use default BAT_ID_REF_VOL\n");
+	}
+	dev_info(&psy->dev, "batt_id pullup_kohm=%d ref_vol=%d\n", data->batt_id_pullup_kohm, data->batt_id_ref_vol);
 	data->batt_id_index = 0;
 	data->batt_id_kohm = sprd_battery_get_batt_id_kohm(psy, data);
 
 	if (data->batt_id_kohm < 0) {
 		dev_warn(&psy->dev, "%s batt id channel read failed, use index 0!\n", __func__);
 		return -EINVAL;
-	}
-
-	battery_np = of_parse_phandle(psy->of_node, "monitored-battery", 0);
-	if (!battery_np) {
-		dev_err(&psy->dev, "not found battery_np for batt id check\n");
-		return -ENODEV;
 	}
 
 	if (of_get_property(battery_np, "batt-id-list", &len)) {

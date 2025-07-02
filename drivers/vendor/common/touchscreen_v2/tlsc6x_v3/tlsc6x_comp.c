@@ -1402,9 +1402,7 @@ void tlsc6x_do_update_ifneed(void)
 	ret = request_firmware(&fw, fwname, &g_tlsc6x_client->dev);
 	if (ret) {
 		tlsc_err("Update fail, unable to open firmware %s\n", fwname);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
 		return;
 	}
 	tlsc_irq_disable();
@@ -1430,10 +1428,8 @@ void tlsc6x_do_update_ifneed(void)
 	kfree(pupd);
 
 exit:
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	if (ret < 0)
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 	g_tp_drvdata->esdHelperFreeze = 0;
 	tlsc_irq_enable();
 	release_firmware(fw);

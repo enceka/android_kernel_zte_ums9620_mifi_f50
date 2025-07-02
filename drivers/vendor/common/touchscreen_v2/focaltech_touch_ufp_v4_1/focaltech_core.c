@@ -35,21 +35,21 @@
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
+#include "focaltech_core.h"
 
-#ifndef CONFIG_TOUCHSCREEN_LCD_NOTIFY
-#if IS_ENABLED(CONFIG_DRM)
+#ifdef FTS_FB_NOTIFIER
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_DRM_PANEL_NOTIFIER)
 #if IS_ENABLED(CONFIG_DRM_PANEL)
 #include <drm/drm_panel.h>
 #else
 #include <linux/msm_drm_notify.h>
-#endif //CONFIG_DRM_PANEL
+#endif //CONFIG_TOUCHSCREEN_DRM_PANEL_NOTIFIER
 
 #elif IS_ENABLED(CONFIG_FB)
 #include <linux/notifier.h>
 #include <linux/fb.h>
 #endif //CONFIG_DRM
 #endif
-#include "focaltech_core.h"
 
 #define LAGRE_SUPPRESSION_AREA "large_area=true"
 
@@ -61,8 +61,8 @@
 #define INTERVAL_READ_REG_RESUME            50  /* unit:ms */
 #define TIMEOUT_READ_REG                    1000 /* unit:ms */
 #if FTS_POWER_SOURCE_CUST_EN
-#define FTS_VTG_MIN_UV                      3000000
-#define FTS_VTG_MAX_UV                      3000000
+#define FTS_VTG_MIN_UV                      3300000
+#define FTS_VTG_MAX_UV                      3300000
 #define FTS_I2C_VTG_MIN_UV                  1800000
 #define FTS_I2C_VTG_MAX_UV                  1800000
 #endif
@@ -77,6 +77,9 @@ struct fts_ts_data *fts_data;
 *****************************************************************************/
 int fts_ts_suspend(struct device *dev);
 int fts_ts_resume(struct device *dev);
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+int fts_read_roi_diffdata(void);
+#endif
 
 int fts_check_cid(struct fts_ts_data *ts_data, u8 id_h)
 {
@@ -156,8 +159,12 @@ void fts_tp_state_recovery(struct fts_ts_data *ts_data)
 int fts_reset_proc(int hdelayms)
 {
 	FTS_DEBUG("tp reset");
+#if (FTS_CHIP_TYPE == _FT3683G)
+    fts_write_reg(0xB6, 0X01);
+    msleep(20);
+#endif
 	gpio_direction_output(fts_data->pdata->reset_gpio, 0);
-	usleep_range(5000, 6000);
+	usleep_range(2000, 3000);
 	gpio_direction_output(fts_data->pdata->reset_gpio, 1);
 	if (hdelayms) {
 		msleep(hdelayms);
@@ -916,9 +923,9 @@ void fts_read_fod_info(struct fts_ts_data *ts_data)
         val[1], val[2], val[3], val[4], val[5], val[6], val[7], val[8]); */
     ts_data->fod_info.fp_id = val[0];
     ts_data->fod_info.event_type = val[1];
-    if (val[8] == 0) {
+    if ((val[8] == 0) && (val[1] == 0x26)) {
         ts_data->fod_info.fp_down = 1;
-    } else if (val[8] == 1) {
+    } else if ((val[8] == 1) && (val[1] == 0x26))  {
         ts_data->fod_info.fp_down = 0;;
     }
     ts_data->fod_info.fp_area_rate = val[2];
@@ -942,6 +949,21 @@ static inline void __report_large_area_uevent(char *str)
 }
 #endif
 
+void fts_read_diffe_max(int *differ_max)
+{
+    int ret = 0;
+    u8 cmd = FTS_REG_DIFFER_MAX;
+    u8 val[2] = { 0 };
+
+    ret = fts_read(&cmd, 1, val, 2);
+    if (ret < 0) {
+        FTS_ERROR("%s:read differ max fail", __func__);
+        return ;
+    }
+   *differ_max = (val[0] << 8) + val[1];
+   TPD_DBG("differ_max: %d", *differ_max);
+}
+
 static int fts_irq_read_report(struct fts_ts_data *ts_data)
 {
     int i = 0;
@@ -958,6 +980,7 @@ static int fts_irq_read_report(struct fts_ts_data *ts_data)
     struct ts_event *events = ts_data->events;
 
     touch_etype = fts_read_parse_touchdata(ts_data, touch_buf);
+    fts_read_diffe_max(&tpd_cdev->differ_max);
 #ifdef CONFIG_TOUCHSCREEN_UFP_MAC
 	fts_read_fod_info(ts_data);
 	if (!ts_data->suspended && (touch_etype != TOUCH_FW_INIT)) {
@@ -1215,13 +1238,16 @@ static int fts_irq_read_report(struct fts_ts_data *ts_data)
         FTS_INFO("unknown touch event(%d)", touch_etype);
         break;
     }
-
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+    fts_read_roi_diffdata();
+#endif
     return 0;
 }
 
 static irqreturn_t fts_irq_handler(int irq, void *data)
 {
     struct fts_ts_data *ts_data = fts_data;
+
 #if IS_ENABLED(CONFIG_PM) && FTS_PATCH_COMERR_PM
     int ret = 0;
 
@@ -1235,8 +1261,14 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
         }
     }
 #endif
-
-
+    if (tpd_cdev->bbat_test_enter) {
+        if (tpd_cdev->bbat_int_test == false) {
+            tpd_cdev->bbat_int_test = true;
+            complete(&tpd_cdev->bbat_test_completion);
+            FTS_INFO("%s tpd int BBAT test success", __func__);
+        }
+        return IRQ_HANDLED;
+    }
     ts_data->intr_jiffies = jiffies;
     fts_prc_queue_work(ts_data);
     fts_irq_read_report(ts_data);
@@ -1505,7 +1537,7 @@ static int fts_pinctrl_select_release(struct fts_ts_data *ts)
 }
 #endif /* FTS_PINCTRL_EN */
 
-static int fts_power_source_ctrl(struct fts_ts_data *ts_data, int enable)
+int fts_power_source_ctrl(struct fts_ts_data *ts_data, int enable)
 {
     int ret = 0;
 
@@ -1519,7 +1551,7 @@ static int fts_power_source_ctrl(struct fts_ts_data *ts_data, int enable)
         if (ts_data->power_disabled) {
             FTS_DEBUG("regulator enable !");
             gpio_direction_output(ts_data->pdata->reset_gpio, 0);
-            msleep(1);
+            usleep_range(1000, 1100);
             ret = regulator_enable(ts_data->vdd);
             if (ret) {
                 FTS_ERROR("enable vdd regulator failed,ret=%d", ret);
@@ -1536,8 +1568,12 @@ static int fts_power_source_ctrl(struct fts_ts_data *ts_data, int enable)
     } else {
         if (!ts_data->power_disabled) {
             FTS_DEBUG("regulator disable !");
+#if (FTS_CHIP_TYPE == _FT3683G)
+            fts_write_reg(0xB6, 0X01);
+            msleep(20);
+#endif
             gpio_direction_output(ts_data->pdata->reset_gpio, 0);
-            msleep(1);
+            usleep_range(1000, 1100);
             ret = regulator_disable(ts_data->vdd);
             if (ret) {
                 FTS_ERROR("disable vdd regulator failed,ret=%d", ret);
@@ -1998,8 +2034,8 @@ static void fts_resume_work(struct work_struct *work)
     fts_ts_resume(ts_data->dev);
 }
 
-#ifndef CONFIG_TOUCHSCREEN_LCD_NOTIFY
-#if IS_ENABLED(CONFIG_DRM)
+#ifdef FTS_FB_NOTIFIER
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_DRM_PANEL_NOTIFIER)
 #if IS_ENABLED(CONFIG_DRM_PANEL)
 static struct drm_panel *active_panel;
 
@@ -2035,16 +2071,16 @@ static int drm_check_dt(struct fts_ts_data *ts_data)
     return -ENODEV;
 }
 #endif //CONFIG_DRM_PANEL
-#endif //CONFIG_DRM
+#endif //CONFIG_TOUCHSCREEN_DRM_PANEL_NOTIFIER
 #endif
 
-#ifndef CONFIG_TOUCHSCREEN_LCD_NOTIFY
+#ifdef FTS_FB_NOTIFIER
 static int fb_notifier_callback(struct notifier_block *self, unsigned long event, void *v)
 {
     struct fts_ts_data *ts_data = container_of(self, struct fts_ts_data, fb_notif);
     FTS_FUNC_ENTER();
     if (ts_data && v) {
-#if IS_ENABLED(CONFIG_DRM)
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_DRM_PANEL_NOTIFIER)
 
 #if IS_ENABLED(CONFIG_DRM_PANEL)
         int blank_value = *((int *)(((struct drm_panel_notifier *)v)->data));
@@ -2060,7 +2096,7 @@ static int fb_notifier_callback(struct notifier_block *self, unsigned long event
         const unsigned long event_enum[2] = {FB_EARLY_EVENT_BLANK, FB_EVENT_BLANK};
         const int blank_enum[2] = {FB_BLANK_POWERDOWN, FB_BLANK_UNBLANK};
         int blank_value = *((int *)(((struct fb_event *)v)->data));
-#endif //CONFIG_DRM
+#endif //CONFIG_TOUCHSCREEN_DRM_PANEL_NOTIFIER
         FTS_INFO("notifier,event:%lu,blank:%d", event, blank_value);
         if ((blank_enum[1] == blank_value) && (event_enum[1] == event)) {
             change_tp_state(LCD_ON);
@@ -2082,7 +2118,7 @@ static int fts_notifier_callback_init(struct fts_ts_data *ts_data)
 {
     int ret = 0;
     FTS_FUNC_ENTER();
-#if IS_ENABLED(CONFIG_DRM)
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_DRM_PANEL_NOTIFIER)
     ts_data->fb_notif.notifier_call = fb_notifier_callback;
 #if IS_ENABLED(CONFIG_DRM_PANEL)
     ret = drm_check_dt(ts_data);
@@ -2106,7 +2142,7 @@ static int fts_notifier_callback_init(struct fts_ts_data *ts_data)
         FTS_ERROR("[FB]Unable to register fb_notifier: %d", ret);
     }
 
-#endif //CONFIG_DRM
+#endif //CONFIG_TOUCHSCREEN_DRM_PANEL_NOTIFIER
     FTS_FUNC_EXIT();
     return ret;
 }
@@ -2114,7 +2150,7 @@ static int fts_notifier_callback_init(struct fts_ts_data *ts_data)
 static int fts_notifier_callback_exit(struct fts_ts_data *ts_data)
 {
     FTS_FUNC_ENTER();
-#if IS_ENABLED(CONFIG_DRM)
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_DRM_PANEL_NOTIFIER)
 #if IS_ENABLED(CONFIG_DRM_PANEL)
     if (active_panel)
         drm_panel_notifier_unregister(active_panel, &ts_data->fb_notif);
@@ -2126,7 +2162,7 @@ static int fts_notifier_callback_exit(struct fts_ts_data *ts_data)
 #elif IS_ENABLED(CONFIG_FB)
     if (fb_unregister_client(&ts_data->fb_notif))
         FTS_ERROR("[FB]Error occurred while unregistering fb_notifier.");
-#endif //CONFIG_DRM
+#endif //CONFIG_TOUCHSCREEN_DRM_PANEL_NOTIFIER
     FTS_FUNC_EXIT();
     return 0;
 }
@@ -2258,7 +2294,7 @@ int fts_ts_probe_entry(struct fts_ts_data *ts_data)
     ts_data->pm_suspend = false;
 #endif
 
-#ifndef CONFIG_TOUCHSCREEN_LCD_NOTIFY
+#ifdef FTS_FB_NOTIFIER
     ret = fts_notifier_callback_init(ts_data);
     if (ret) {
         FTS_ERROR("init notifier callback fail");
@@ -2289,10 +2325,7 @@ err_bus_init:
     kfree_safe(ts_data->bus_tx_buf);
     kfree_safe(ts_data->bus_rx_buf);
     kfree_safe(ts_data->pdata);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_FOCAL)
-		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_FOCAL;
-#endif
+    tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_FOCAL;
     FTS_FUNC_EXIT();
     return ret;
 }
@@ -2322,7 +2355,7 @@ int fts_ts_remove_entry(struct fts_ts_data *ts_data)
 #endif
 
     if (ts_data->ts_workqueue) destroy_workqueue(ts_data->ts_workqueue);
-#ifndef CONFIG_TOUCHSCREEN_LCD_NOTIFY
+#ifdef FTS_FB_NOTIFIER
     fts_notifier_callback_exit(ts_data);
 #endif
     if (gpio_is_valid(ts_data->pdata->reset_gpio))

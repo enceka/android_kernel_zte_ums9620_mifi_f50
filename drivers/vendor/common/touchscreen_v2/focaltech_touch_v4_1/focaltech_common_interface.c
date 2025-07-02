@@ -33,6 +33,7 @@
 char g_fts_ini_filename[MAX_INI_FILE_NAME_LEN] = {0};
 char fts_vendor_name[20] = { 0 };
 int fts_tptest_result = 0;
+int fts_vendor_id = 0;
 
 extern struct fts_ts_data *fts_data;
 extern struct fts_test *fts_ftest;
@@ -70,6 +71,7 @@ static int tpd_init_tpinfo(struct ztp_device *cdev)
 	u8 vendorid_in_chip = 0;
 	u8 chipid_in_chip = 0;
 	u8 lcdver_in_chip = 0;
+	u8 moduleid_in_chip = 0;
 	u8 retry = 0;
 
 	if (fts_data->suspended) {
@@ -82,9 +84,11 @@ static int tpd_init_tpinfo(struct ztp_device *cdev)
 		fts_read_reg(FTS_REG_VENDOR_ID, &vendorid_in_chip);
 		fts_read_reg(FTS_REG_FW_VER, &fwver_in_chip);
 		fts_read_reg(FTS_REG_LIC_VER, &lcdver_in_chip);
+		fts_read_reg(FTS_REG_MODULE_ID, &moduleid_in_chip);
 		if ((chipid_in_chip != 0) && (vendorid_in_chip != 0) && (fwver_in_chip != 0)) {
 			FTS_DEBUG("chip_id = %x,vendor_id =%x,fw_version=%x,lcd_version=%x .\n",
 				  chipid_in_chip, vendorid_in_chip, fwver_in_chip, lcdver_in_chip);
+			FTS_DEBUG("moduleid_in_chip = %x", moduleid_in_chip);
 			break;
 		}
 		FTS_DEBUG("chip_id = %x,vendor_id =%x,fw_version=%x, lcd_version=%x .\n",
@@ -119,14 +123,11 @@ static int tpd_enable_wakegesture(struct ztp_device *cdev, int enable)
 	struct fts_ts_data *ts_data = (struct fts_ts_data *)cdev->private;
 
 	if (ts_data->suspended) {
-		cdev->tp_suspend_write_gesture = true;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SUSPEND_GESTURE_OPEN_NO);
-#endif
 	} else {
 		ts_data->gesture_support = enable;
 	}
-	cdev->b_gesture_enable = enable;
+	cdev->ztp_ctl.is_wakeup_gesture = enable;
 	return enable;
 }
 
@@ -136,11 +137,21 @@ static bool fts_suspend_need_awake(struct ztp_device *cdev)
 
 	if (!ts_data->ic_info.is_incell)
 		return false;
-	if (!cdev->tp_suspend_write_gesture &&
-		(ts_data->fw_loading || ts_data->gesture_support)) {
-		FTS_INFO("tp suspend need awake.\n");
+
+	if (ts_data->fw_loading || ts_data->gesture_support) {
+		FTS_INFO("fw_loading or gesture_support, tp suspend need awake.\n");
 		return true;
-	} else {
+	}
+#if FTS_PSENSOR_EN
+	else if (!ts_data->tpd_proximity_detect_is_far && ts_data->tpd_proximity_flag) {
+		FTS_INFO("tp proximity report near, tp suspend need awake.\n");
+		return true;
+	}
+#endif
+	else {
+#if FTS_PSENSOR_EN
+		ts_data->tpd_proximity_flag = 0;
+#endif
 		FTS_INFO("tp suspend dont need awake.\n");
 		return false;
 	}
@@ -171,6 +182,7 @@ int fts_tp_resume(void *fts_data)
 	struct fts_ts_data *ts_data = (struct fts_ts_data *)fts_data;
 
 	fts_ts_resume(ts_data->dev);
+	ts_data->gesture_support = tpd_cdev->ztp_ctl.is_wakeup_gesture;
 	return 0;
 }
 
@@ -207,15 +219,20 @@ static int tpd_test_cmd_store(struct ztp_device *cdev)
 	int ret = 0;
 	struct fts_ts_data *ts_data = fts_data;
 	struct input_dev *input_dev;
+	u8 vendorid_in_chip = 0;
 
 	if (ts_data->suspended) {
 		FTS_INFO("In suspend, no test, return now");
 		return -EINVAL;
 	}
-
+	ret = fts_read_reg(FTS_REG_VENDOR_ID, &vendorid_in_chip);
+	if (ret < 0) {
+		vendorid_in_chip = (u8) (fts_vendor_id & 0xFF);
+		FTS_ERROR("%s vendorid_in_chip read fail, use fts_vendor_id:%02x", __func__, vendorid_in_chip);
+	}
 	input_dev = ts_data->input_dev;
 	snprintf(g_fts_ini_filename, sizeof(g_fts_ini_filename), "fts_test_sensor_%02x.ini",
-			tpd_cdev->ic_tpinfo.module_id);
+			vendorid_in_chip);
 	FTS_TEST_DBG("g_fts_ini_filename:%s.", g_fts_ini_filename);
 
 	mutex_lock(&input_dev->mutex);
@@ -593,6 +610,112 @@ static int fts_get_noise(struct ztp_device *cdev)
 	return 0;
 }
 
+int fts_bbat_test_int_pin(void)
+{
+	int ret;
+
+	ret = fts_enter_test_environment(1);
+	if (ret < 0) {
+		FTS_ERROR("enter test environment fail");
+		return ret;
+	}
+	ret = enter_factory_mode();
+	if (ret < 0) {
+		FTS_ERROR("enter factory mode fail, ret=%d", ret);
+		return ret;
+	}
+	fts_write_reg(FTS_REG_INT_OUT_TEST, 0);
+	usleep_range(10000, 11000);
+	fts_write_reg(FTS_REG_INT_OUT_TEST, 1);
+	usleep_range(10000, 11000);
+
+	ret = enter_work_mode();
+	if (ret < 0) {
+		FTS_ERROR("enter work mode fail, ret=%d", ret);
+		return ret;
+	}
+	ret = fts_enter_test_environment(0);
+	if (ret < 0) {
+		FTS_ERROR("enter normal environment fail");
+		return ret;
+	}
+    return ret;
+}
+
+int fts_bbat_test_reset_pin(void)
+{
+	int ret = 0;
+	u8 report_rate = 0;
+	u8 report_rate_old = 0;
+
+	ret = fts_read_reg(FTS_REG_REPORT_RATE, &report_rate);
+	if (ret < 0) {
+		FTS_ERROR("%s read report_rate fail", __func__);
+		return ret;
+	}
+	FTS_INFO("report_rate val:0x%x", report_rate);
+	report_rate_old = report_rate;
+	msleep(20);
+	ret = fts_write_reg(FTS_REG_REPORT_RATE, report_rate + 1);
+	if (ret < 0) {
+		FTS_ERROR("%s write report_rate fail", __func__);
+		return ret;
+	}
+	msleep(20);
+	ret = fts_read_reg(FTS_REG_REPORT_RATE, &report_rate);
+	if (ret < 0) {
+		FTS_ERROR("%s read report_rate fail", __func__);
+		return ret;
+	}
+	FTS_INFO("write report_rate + 1, read report_rate val:0x%x", report_rate);
+	if (report_rate != (report_rate_old + 1)) {
+		FTS_INFO("write  report_rate fail");
+		return -EINVAL;
+	}
+	fts_reset_proc(200);
+	ret = fts_read_reg(FTS_REG_REPORT_RATE, &report_rate);
+	if (ret < 0) {
+		FTS_ERROR("%s read report_rate fail", __func__);
+		return ret;
+	}
+	if (report_rate_old == report_rate) {
+		FTS_INFO("reset test success");
+	} else {
+		FTS_ERROR("reset test fail");
+		ret = -EINVAL;
+	}
+    return ret;
+}
+
+static int fts_bbat_test(struct ztp_device *cdev)
+{
+	int ret = 0;
+
+/*tp int test*/
+	cdev->bbat_test_enter = true;
+	cdev->bbat_int_test = false;
+	cdev->bbat_test_result = 0;
+	reinit_completion(&cdev->bbat_test_completion);
+	ret = fts_bbat_test_int_pin();
+	if (ret) {
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_INT_BAAT_TEST_FAIL;
+	}
+	if (cdev->bbat_int_test == false) {
+		ret = wait_for_completion_timeout(&cdev->bbat_test_completion, msecs_to_jiffies(700));
+		if (!ret) {
+			FTS_ERROR("tp int test fail");
+			cdev->bbat_test_result = TP_INT_BAAT_TEST_FAIL;
+		}
+	}
+/* tp rest test*/
+	ret = fts_bbat_test_reset_pin();
+	if (ret) {
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_RST_BAAT_TEST_FAIL;
+	}
+	cdev->bbat_test_enter = false;
+	return cdev->bbat_test_result;
+}
+
 int tpd_register_fw_class(struct fts_ts_data *data)
 {
 	tpd_cdev->private = (void *)data;
@@ -617,13 +740,15 @@ int tpd_register_fw_class(struct fts_ts_data *data)
 	tpd_init_tpinfo(tpd_cdev);
 	tpd_cdev->max_x = data->pdata->x_max;
 	tpd_cdev->max_y = data->pdata->y_max;
+	tpd_cdev->input = data->input_dev;
 	data->sensibility_level = 1;
+	fts_vendor_id = get_fts_module_info_from_lcd();
 	snprintf(g_fts_ini_filename, sizeof(g_fts_ini_filename), "fts_test_sensor_%02x.ini",
 		tpd_cdev->ic_tpinfo.module_id);
 	tpd_cdev->charger_state_notify = fts_charger_state_notify;
 	queue_delayed_work(tpd_cdev->tpd_wq, &tpd_cdev->charger_work, msecs_to_jiffies(5000));
+	tpd_cdev->tp_bbat_test = fts_bbat_test;
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	get_fts_module_info_from_lcd();
 	zlog_tp_dev.device_name = fts_vendor_name;
 	zlog_tp_dev.ic_name = "focal_tp";
 	TPD_ZLOG("device_name:%s, ic_name: %s.", zlog_tp_dev.device_name, zlog_tp_dev.ic_name);

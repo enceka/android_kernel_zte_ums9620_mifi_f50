@@ -4,11 +4,15 @@
 ifeq ($(CONFIG_VENDOR_ZTE_LOG_EXCEPTION),m)
 	ccflags-y += -DCONFIG_VENDOR_ZTE_LOG_EXCEPTION
 endif
+ifeq ($(ZTE_EDGE_MISTOUCH_PREVENTION_NARROW),true)
+	ccflags-y += -DCONFIG_EDGE_MISTOUCH_PREVENTION_NARROW
+endif
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/goodix_berlin_driver_v2/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/chipone_tddi_v2/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/chipone_tddi_v2_1/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/chipone_tddi_v3/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
+ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/chipone_tddi_pad/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/chsc5xxx/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/ilitek_tddi_v3/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
 ifeq ($(CONFIG_TOUCHSCREEN_FTS_V3_3),y)
@@ -37,6 +41,8 @@ ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/betterlife_ts/fir
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/sitronix_incell/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/omnivision_tcm/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
 ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/hxchipset_v3_3/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
+ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/hxchipset_pad/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
+ccflags-y += -I$(srctree)/drivers/vendor/common/touchscreen_v2/axs_touch/firmware_config/$(CONFIG_TOUCHSCREEN_BOARD_NAME)/
 
 zte_tpd-y := ztp_core.o ztp_report_algo.o ztp_state_change.o
 zte_tpd-$(CONFIG_TOUCHSCREEN_UFP_MAC) +=  ztp_ufp.o
@@ -144,10 +150,12 @@ zte_tpd-$(CONFIG_TOUCHSCREEN_FTS_V4_1) += \
 	focaltech_touch_v4_1/focaltech_flash_spi.o \
 	focaltech_touch_v4_1/focaltech_common_interface.o \
 	focaltech_touch_v4_1/focaltech_spi_v2.o \
+	focaltech_touch_v4_1/focaltech_proximity.o \
 	focaltech_touch_v4_1/focaltech_test/focaltech_test.o \
 	focaltech_touch_v4_1/focaltech_test/focaltech_test_ini.o \
 	focaltech_touch_v4_1/focaltech_test/supported_ic/focaltech_test_ft8720.o\
-	focaltech_touch_v4_1/focaltech_test/supported_ic/focaltech_test_ft8725.o
+	focaltech_touch_v4_1/focaltech_test/supported_ic/focaltech_test_ft8725.o \
+	focaltech_touch_v4_1/focaltech_test/supported_ic/focaltech_test_ft8057s.o
 
 ######################################################
 
@@ -296,6 +304,25 @@ zte_tpd-$(CONFIG_TOUCHSCREEN_CHIPONE_V2_1) += \
 	chipone_tddi_v2_1/cts_strerror.o
 ######################################################
 
+###################CHIPONE_TDDI_V2_1#####################
+zte_tpd-$(CONFIG_TOUCHSCREEN_CHIPONE_PAD) += \
+	chipone_tddi_pad/cts_driver.o \
+	chipone_tddi_pad/cts_core.o \
+	chipone_tddi_pad/cts_sfctrlv2.o \
+	chipone_tddi_pad/cts_spi_flash.o \
+	chipone_tddi_pad/cts_firmware.o \
+	chipone_tddi_pad/cts_test.o \
+	chipone_tddi_pad/cts_tcs.o \
+	chipone_tddi_pad/cts_platform.o \
+	chipone_tddi_pad/cts_tool.o \
+	chipone_tddi_pad/cts_sysfs.o \
+	chipone_tddi_pad/cts_strerror.o \
+	chipone_tddi_pad/cts_common_interface.o \
+	chipone_tddi_pad/cts_selftest.o \
+	chipone_tddi_pad/cts_selftest_ini.o \
+	chipone_tddi_pad/cts_oem.o
+######################################################
+
 #### himax tp driver v3_3 #############################
 
 zte_tpd-$(CONFIG_TOUCHSCREEN_HIMAX_CHIPSET_V3_3) += \
@@ -314,6 +341,42 @@ ifneq ($(filter y m, $(CONFIG_TOUCHSCREEN_HIMAX_CHIPSET_V3_3)),)
 	endif
 endif
 
+######################################################
+
+#### himax tp driver PAD #############################
+
+zte_tpd-$(CONFIG_TOUCHSCREEN_HIMAX_CHIPSET_PAD) += \
+	hxchipset_pad/himax_ic_core.o \
+	hxchipset_pad/himax_common.o \
+	hxchipset_pad/himax_inspection.o \
+	hxchipset_pad/himax_debug.o \
+	hxchipset_pad/himax_platform.o \
+	hxchipset_pad/himax_common_interface.o
+
+zte_tpd-$(CONFIG_TOUCHSCREEN_HIMAX_IC_HX83102J) += hxchipset_pad/himax_ic_HX83102j.o
+
+ifneq ($(filter y m, $(CONFIG_TOUCHSCREEN_HIMAX_CHIPSET_PAD)),)
+	ifneq ($(filter y, $(CONFIG_FB)),)
+		ccflags-y += -DHX_CONFIG_FB
+	endif
+endif
+
+######################################################
+zte_tpd-$(CONFIG_TOUCHSCREEN_AXS) += \
+	axs_touch/axs_core.o \
+	axs_touch/axs_i2c.o \
+	axs_touch/axs_spi.o \
+	axs_touch/axs_debug.o \
+	axs_touch/axs_upgrade.o \
+	axs_touch/axs_download.o \
+	axs_touch/axs_gesture.o \
+	axs_touch/axs_esd.o \
+	axs_touch/axs_psensor.o \
+	axs_touch/axs_common_interface.o \
+	axs_touch/axs_test_ini.o \
+	axs_touch/axs_test.o \
+	axs_touch/axs_15260test.o
+	
 ######################################################
 
 obj-$(CONFIG_TOUCHSCREEN_VENDOR_V2) += lcd_state_notify.o

@@ -28,6 +28,9 @@
 #include <linux/version.h>
 #include <linux/delay.h>
 
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+#include "zlog_common_base.h"
+#endif
 
 /*****************************************************************************
 * Private constant and macro definitions using #define
@@ -163,6 +166,10 @@ typedef struct {
     bool b_ree;
     bool b_spiclk;
     bool b_spiclk_enabled;
+
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+    struct zlog_client *zlog_fp_client;
+#endif
 
 } ff_context_t;
 

@@ -34,3 +34,8 @@ obj-$(CONFIG_ZTE_LCDBL_I2C_CTRL_VSP_VSN) += zte_lcdbl/
 obj-$(CONFIG_ZTE_PLATFORM_FINGERPRINT)    += fingerprint/
 
 obj-y += stats_info/
+
+#for pv gpio test
+ifdef ZTE_FEATURE_PV_AR
+obj-$(CONFIG_ZTE_PV_PIN_TEST)   += zte_pv_pintest/
+endif

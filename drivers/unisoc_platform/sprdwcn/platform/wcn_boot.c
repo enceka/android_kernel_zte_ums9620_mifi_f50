@@ -2186,10 +2186,11 @@ static void power_state_notify_or_not(enum wcn_sub_sys subsys, int poweron)
 		set_fm_supe_freq(subsys, poweron, marlin_dev->power_state);
 	}
 
-	if ((test_bit(MARLIN_BLUETOOTH, &marlin_dev->power_state) +
+	if (((test_bit(MARLIN_BLUETOOTH, &marlin_dev->power_state) +
 		test_bit(MARLIN_FM, &marlin_dev->power_state) +
 		test_bit(MARLIN_WIFI, &marlin_dev->power_state) +
-		test_bit(MARLIN_MDBG, &marlin_dev->power_state)) == 1) {
+		test_bit(MARLIN_MDBG, &marlin_dev->power_state)) == 1) &&
+		(sprdwcn_bus_get_carddump_status() == 0)) {
 		pr_info("only one module open, need to notify loopcheck\n");
 		start_loopcheck();
 		marlin_dev->loopcheck_status_change = 1;
@@ -2321,6 +2322,7 @@ static int bus_scan_card(void)
 {
 	unsigned int card_detect_wait_ms;
 	struct wcn_match_data *g_match_config = get_wcn_match_config();
+	int ret = 0;
 
 	if (g_match_config && g_match_config->unisoc_wcn_usb)
 		card_detect_wait_ms = USB_CARD_DETECT_WAIT_MS;
@@ -2328,14 +2330,20 @@ static int bus_scan_card(void)
 		card_detect_wait_ms = CARD_DETECT_WAIT_MS;
 
 	init_completion(&marlin_dev->carddetect_done);
-	sprdwcn_bus_rescan(marlin_dev);
-	if (wait_for_completion_timeout(&marlin_dev->carddetect_done,
-		msecs_to_jiffies(card_detect_wait_ms)) == 0) {
+	ret = sprdwcn_bus_rescan(marlin_dev);
+	if (!ret) {
+		if (wait_for_completion_timeout(&marlin_dev->carddetect_done,
+			msecs_to_jiffies(card_detect_wait_ms)) == 0) {
+			pr_err("Does the device not exist or unable to notify(->To removed)?\n");
+			sprdwcn_bus_remove_card(marlin_dev);
+			return -ETIMEDOUT;
+		}
+	} else {
 		pr_err("wait bus rescan card time out\n");
-		return -1;
+		ret = -ENODEV;
 	}
 
-	return 0;
+	return ret;
 }
 
 static void wifipa_enable(int enable)
@@ -2413,7 +2421,7 @@ static int chip_power_on(enum wcn_sub_sys subsys)
 	wifipa_enable(1);
 	wcn_wifipa_bound_xtl(true);
 	if (bus_scan_card() < 0)
-		return -1;
+		goto wcn_power_off;
 	loopcheck_ready_set();
 	if (g_match_config && !g_match_config->unisoc_wcn_pcie) {
 		mem_pd_poweroff_deinit();
@@ -2422,6 +2430,21 @@ static int chip_power_on(enum wcn_sub_sys subsys)
 	}
 
 	return 0;
+
+wcn_power_off:
+	pr_err("WCN poweron failed, turn off all power\n");
+	wcn_avdd12_bound_xtl(false);
+	wcn_wifipa_bound_xtl(false);
+	wcn_avdd12_parent_bound_chip(true);
+	wifipa_enable(0);
+	marlin_avdd18_dcxo_enable(false);
+	marlin_clk_enable(false);
+	marlin_chip_en(false, false);
+	marlin_digital_power_enable(false);
+	marlin_analog_power_enable(false);
+	chip_reset_release(0);
+
+	return -1;
 }
 
 static int chip_power_off(enum wcn_sub_sys subsys)
@@ -2562,6 +2585,22 @@ retry:
 		goto retry;
 	}
 
+	ret = sprdwcn_bus_reg_read(CGM_GNSS_APB_CFG, &temp, 4);
+	if (ret < 0) {
+		pr_err("%s read CGM_GNSS_APB_CFG error:%d\n", __func__, ret);
+		return ret;
+	}
+	pr_info("%s R_CGM_GNSS_APB_CFG:0x%x\n", __func__, temp);
+	if (temp & CGM_GNSS_APB_SEL) {
+		pr_info("GNSS clock switching abnormal!\n");
+		temp = temp & (~(CGM_GNSS_APB_SEL));
+		ret = sprdwcn_bus_reg_write(CGM_GNSS_APB_CFG, &temp, 4);
+		if (ret < 0) {
+			pr_err("write CGM_GNSS_FAKE_CFG err:%d\n", ret);
+			return ret;
+		}
+	}
+
 	ret = sprdwcn_bus_reg_read(PD_GNSS_SS_AON_CFG4, &temp, 4);
 	if (ret < 0) {
 		pr_err("read PD_GNSS_SS_AON_CFG4 err:%d\n", ret);
@@ -2588,6 +2627,31 @@ int open_power_ctl(void)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(open_power_ctl);
+
+int wcn_firmware_ready_close(u8 not_allow_map)
+{
+	int ret = 0;
+	unsigned int offset = offsetof(struct wcn_sync_info_t, push_not_allow);
+
+	ret = sprdwcn_bus_direct_read(get_sync_addr(),
+		&(marlin_dev->sync_f), sizeof(struct wcn_sync_info_t));
+	if (ret) {
+		WCN_ERR("%s: SYNC_ADDR reading failed for firmware %d\n", __func__, ret);
+		return -ENODEV;
+	}
+
+	WCN_DBG("%s: Write 0x%x+0x%x[0x%x to 0x%x]\n", __func__, get_sync_addr(), offset,
+	marlin_dev->sync_f.push_not_allow, marlin_dev->sync_f.push_not_allow | not_allow_map);
+
+	/* Terminate data transmission */
+	marlin_dev->sync_f.push_not_allow |= not_allow_map;
+	ret = sprdwcn_bus_direct_write(get_sync_addr() + offset,
+			&(marlin_dev->sync_f.push_not_allow), 1);
+	if (ret)
+		WCN_ERR("%s: SYNC_ADDR writing failed for firmware %d\n", __func__, ret);
+
+	return ret;
+}
 
 static int marlin_set_power(enum wcn_sub_sys subsys, int val)
 {
@@ -3102,7 +3166,9 @@ int stop_marlin(enum wcn_sub_sys subsys)
 		pr_info("%s wait for lock release\n", __func__);
 
 	mutex_lock(&marlin_dev->power_lock);
+	wcn_set_powerdown_flag(true);
 	if (!marlin_get_power()) {
+		wcn_set_powerdown_flag(false);
 		mutex_unlock(&marlin_dev->power_lock);
 		pr_info("%s no module opend\n", __func__);
 		return 0;
@@ -3123,10 +3189,12 @@ int stop_marlin(enum wcn_sub_sys subsys)
 
 	ret = marlin_set_power(subsys, false);
 
+	wcn_set_powerdown_flag(false);
 	mutex_unlock(&marlin_dev->power_lock);
 	return ret;
 
 unlock:
+	wcn_set_powerdown_flag(false);
 	mutex_unlock(&marlin_dev->power_lock);
 	return -1;
 }

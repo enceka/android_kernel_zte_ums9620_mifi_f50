@@ -313,6 +313,7 @@ static int debug_mode_get_data(struct file_buffer *file, u8 type, u32 frame_coun
 	if (ilitek_debug_node_buff_control(ENABLE) < 0) {
 		ILI_ERR("Failed to allocate debug buf\n");
 		ret = -ENOMEM;
+		mutex_unlock(&ilits->touch_mutex);
 		goto out;
 	}
 
@@ -1759,6 +1760,7 @@ static ssize_t ilitek_node_ioctl_write(struct file *filp, const char *buff, size
 	if (buff != NULL) {
 		if (copy_from_user(cmd, buff, size - 1)) {
 			ILI_INFO("Failed to copy data from user space\n");
+			mutex_unlock(&ilits->touch_mutex);
 			return -1;
 		}
 	}

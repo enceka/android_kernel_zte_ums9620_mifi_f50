@@ -359,7 +359,6 @@ static int ovt_tcm_spi_alloc_mem(struct ovt_tcm_hcd *tcm_hcd,
 {
 	static unsigned int xfer_count;
 
-	ovt_info(DEBUG_LOG, "%s entry\n", __func__);
 	if (count > xfer_count) {
 		kfree(xfer);
 		xfer = kcalloc(count, sizeof(*xfer), GFP_KERNEL);
@@ -387,7 +386,6 @@ static int ovt_tcm_spi_alloc_mem(struct ovt_tcm_hcd *tcm_hcd,
 		buf_size = size;
 	}
 
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
 	return 0;
 }
 
@@ -599,7 +597,6 @@ static int ovt_tcm_spi_read(struct ovt_tcm_hcd *tcm_hcd, unsigned char *data,
 exit:
 	mutex_unlock(&tcm_hcd->io_ctrl_mutex);
 
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
 	return retval;
 }
 
@@ -656,7 +653,6 @@ static int ovt_tcm_spi_write(struct ovt_tcm_hcd *tcm_hcd, unsigned char *data,
 exit:
 	mutex_unlock(&tcm_hcd->io_ctrl_mutex);
 
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
 	return retval;
 }
 
@@ -672,7 +668,7 @@ static int ovt_tcm_spi_probe(struct spi_device *spi)
 		.cs_setuptime = 518, /*5us == 518*9.6 ns*/
 	};
 #endif
-	ovt_info(DEBUG_LOG, "%s entry\n", __func__);
+	ovt_info(INFO_LOG, "%s entry\n", __func__);
 	if (spi->master->flags & SPI_MASTER_HALF_DUPLEX) {
 		ovt_info(ERR_LOG,
 				"Full duplex not supported by host\n");
@@ -750,7 +746,7 @@ static int ovt_tcm_spi_probe(struct spi_device *spi)
 
 static int ovt_tcm_spi_remove(struct spi_device *spi)
 {
-	ovt_info(DEBUG_LOG, "%s entry\n", __func__);
+	ovt_info(INFO_LOG, "%s entry\n", __func__);
 	ovt_tcm_spi_device->dev.platform_data = NULL;
 
 	platform_device_unregister(ovt_tcm_spi_device);
@@ -789,14 +785,14 @@ static struct spi_driver ovt_tcm_spi_driver = {
 
 int ovt_tcm_bus_init(void)
 {
-	ovt_info(DEBUG_LOG, "%s entry\n", __func__);
+	ovt_info(INFO_LOG, "%s entry\n", __func__);
 	return spi_register_driver(&ovt_tcm_spi_driver);
 }
 EXPORT_SYMBOL(ovt_tcm_bus_init);
 
 void ovt_tcm_bus_exit(void)
 {
-	ovt_info(DEBUG_LOG, "%s entry\n", __func__);
+	ovt_info(INFO_LOG, "%s entry\n", __func__);
 	kfree(buf);
 
 	kfree(xfer);

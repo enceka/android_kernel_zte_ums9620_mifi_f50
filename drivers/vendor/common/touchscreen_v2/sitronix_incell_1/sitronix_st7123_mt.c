@@ -213,11 +213,8 @@ int sitronix_ts_monitor_thread_v3(void *data)
 #endif	//SITRONIX_MT_CHECK_DIS
 			if (-1 == result) {
 				stmsg("ESD detected chip abnormal, reset device!\n");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-				tpd_print_zlog("ESD detected chip abnormal, reset device!\n");
 				tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
-				sitronix_ts_mt_reset_process();
+#endif				sitronix_ts_mt_reset_process();
 				mt_peroid = DELAY_MONITOR_THREAD_PEROID_NORMAL;
 				i2cErrorCount = 0;
 				StatusCheckCount = 0;
@@ -226,11 +223,8 @@ exit_i2c_invalid:
 			if (0 == result) {
 				i2cErrorCount++;
 				if ((2 <= i2cErrorCount)) {
-					stmsg("I2C abnormal or status bootcode, reset it!\n");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-					tpd_print_zlog("I2C abnormal or status bootcode, reset it!\n");
+					stmsg("I2C abnormal or status bootcode, reset it!\n"););
 					tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
 					sitronix_ts_mt_reset_process();
 					mt_peroid = DELAY_MONITOR_THREAD_PEROID_NORMAL;
 					i2cErrorCount = 0;

@@ -1,5 +1,5 @@
 /************************************************************************
-* Copyright (c) 2012-2020, Focaltech Systems (R)£¬All Rights Reserved.
+* Copyright (c) 2012-2020, Focaltech Systems (R) All Rights Reserved.
 *
 * File Name: focaltech_flash.h
 *
@@ -172,6 +172,9 @@ struct upgrade_func {
     int (*lic_upgrade)(u8 *, u32);
     int (*param_upgrade)(u8 *, u32);
     int (*force_upgrade)(u8 *, u32);
+#ifdef FTS_UPGRADE_CHECK_CHIP_ID
+    char *chip_name;
+#endif
 };
 
 struct upgrade_setting_nf {

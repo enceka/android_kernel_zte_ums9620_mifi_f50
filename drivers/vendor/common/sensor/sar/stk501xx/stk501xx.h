@@ -14,8 +14,7 @@
 /*****************************************************************************
  * Global variable
  *****************************************************************************/
-
-enum{
+enum {
     DIST_GAIN_512 = 0x0,
     DIST_GAIN_256 = 0x1,
     DIST_GAIN_128 = 0x2,
@@ -26,7 +25,7 @@ enum{
     DIST_GAIN_4   = 0x7,
 };
 
-//Threshold fill in delta decimal value
+// Threshold fill in delta decimal value
 #define STK_SAR_THD_0                       4500
 #define STK_SAR_THD_1                       4500
 #define STK_SAR_THD_2                       4500
@@ -40,7 +39,7 @@ enum{
     #define PHASE_EN 0x3F  //use all phase
     #define PROXIMITY_THRES 0x21
 #else
-    #define PHASE_EN 0x1F  //use phase 0 1 2 4
+    #define PHASE_EN 0x07  //use phase 0 1 2 4
     #define PROXIMITY_THRES 0x32
 #endif
 
@@ -54,24 +53,21 @@ enum{
 
 #define STK501XX_ID                          0x6503
 
-#define STK_POLLING_TIME                    100000//us
+#define STK_POLLING_TIME                    100000  // us
 
-typedef struct stk501xx_register_table
-{
+typedef struct stk501xx_register_table {
     uint16_t address;
     uint32_t value;
 } stk501xx_register_table;
 
-typedef enum
-{
+typedef enum {
     STK_SAR_FAR_AWAY = 0,
     STK_SAR_NEAR_BY,
     STK_SAR_NEAR_BY_UNKNOWN
 } stk_sar_nearby_type;
 
 #ifdef MCU_GESTURE
-typedef enum
-{
+typedef enum {
     STK_SAR_GESTURE_INEAR = 0x1,
     STK_SAR_GESTURE_OUTEAR,
     STK_SAR_GESTURE_DOUBLE_CLICK,
@@ -82,6 +78,7 @@ typedef enum
     STK_SAR_GESTURE_UNKOWN = 0xFF,
 } stk_sar_gesture_type;
 #endif
+
 /*****************************************************************************
  * stk501xx register, start
  *****************************************************************************/
@@ -132,28 +129,28 @@ typedef enum
 #define STK_CHIP_INDEX_F__MASK                  0x000000FF
 
 #define STK_ADDR_RXIO0_MUX_REG                  0x0058
-#define STK_RXIO0_MUX_REG_VALUE                 0x22222224 //PH1
+#define STK_RXIO0_MUX_REG_VALUE                 0x22222222 //PH1
 
 #define STK_ADDR_RXIO1_MUX_REG                  0x005C
 #define STK_RXIO1_MUX_REG_VALUE                 0x22222242 //PH2
 
 #define STK_ADDR_RXIO2_MUX_REG                  0x0060
-#define STK_RXIO2_MUX_REG_VALUE                 0x22222422
+#define STK_RXIO2_MUX_REG_VALUE                 0x22222224
 
 #define STK_ADDR_RXIO3_MUX_REG                  0x0064
 #define STK_RXIO3_MUX_REG_VALUE                 0x00000000 //Digital mode
 
 #define STK_ADDR_RXIO4_MUX_REG                  0x0068
-#define STK_RXIO4_MUX_REG_VALUE                 0x22242222
+#define STK_RXIO4_MUX_REG_VALUE                 0x22222222
 
 #define STK_ADDR_RXIO5_MUX_REG                  0x006C
-#define STK_RXIO5_MUX_REG_VALUE                 0x22422222
+#define STK_RXIO5_MUX_REG_VALUE                 0x22222222
 
 #define STK_ADDR_RXIO6_MUX_REG                  0x0070
-#define STK_RXIO6_MUX_REG_VALUE                 0x24222222
+#define STK_RXIO6_MUX_REG_VALUE                 0x22222422
 
 #define STK_ADDR_RXIO7_MUX_REG                  0x0074
-#define STK_RXIO7_MUX_REG_VALUE                 0x42222222
+#define STK_RXIO7_MUX_REG_VALUE                 0x22222222
 
 #define STK_ADDR_ADP_BASELINE_0                 0x00B0
 #define STK_ADP_BASELINE_0_VALUE                0x00050000
@@ -197,7 +194,7 @@ typedef enum
 #define STK_ADDR_DETECT_STATUS_4                0x0190
 #define STK_DETECT_STATUS_4_DES_STAT_A_MASK     0x01
 
-//Each pahse contol reg
+// Each pahse contol reg
 #define STK_ADDR_SCAN_OPT_PH0                   0x0200
 #define STK_ADDR_TX_CTRL_PH0                    0x0208
 #define STK_ADDR_SENS_CTRL_PH0                  0x020C
@@ -468,7 +465,6 @@ typedef enum
 #define STK_ADDR_CUSTOM_D_CTRL0                 0x0498
 #define STK_ADDR_CUSTOM_D_CTRL1                 0x049C
 
-
 #define STK_ADDR_REG_RAW_PH0_REG                0x0500
 #define STK_ADDR_REG_RAW_PH1_REG                0x0504
 #define STK_ADDR_REG_RAW_PH2_REG                0x0508
@@ -500,7 +496,6 @@ typedef enum
 #define STK_ADDR_TRIM_LOCK                      0x0010
 #define STK_ADDR_CADC_SMOOTH                    0x0120
 
-
 /*****************************************************************************
  * stk501xx register, end
  *****************************************************************************/
@@ -510,14 +505,12 @@ static const uint16_t STK_ID[1] = { STK501XX_ID };
 typedef struct stk_data stk_data;
 typedef void (*STK_REPORT_CB)(struct stk_data *);
 
-struct stk501xx_platform_data
-{
-    unsigned char   direction;
+struct stk501xx_platform_data {
     int32_t             interrupt_int1_pin;
+    uint32_t            phase_use_flag;
 };
 
-struct stk_data
-{
+struct stk_data {
     const struct stk_bus_ops        *bops;
     const struct stk_timer_ops      *tops;
     const struct stk_gpio_ops       *gops;
@@ -548,11 +541,11 @@ struct stk_data
     stk_gpio_info                   gpio_info;
     int32_t                         int_pin;
 #endif
+    uint32_t                        phase_use_flag;
 #if (defined STK_POLLING_MODE || defined MCU_GESTURE)
     stk_timer_info                  stk_timer_info;
 #endif /* STK_INTERRUPT_MODE, STK_POLLING_MODE */
 };
-
 
 #define STK_SAR_TAG                 "[stkSAR]"
 
@@ -599,4 +592,5 @@ void stk501xx_phase_reset(struct stk_data* stk);
 #ifdef MCU_GESTURE
 #include "stk_gesture_lib.h"
 #endif
+
 #endif /* __STK8XXX_H__ */

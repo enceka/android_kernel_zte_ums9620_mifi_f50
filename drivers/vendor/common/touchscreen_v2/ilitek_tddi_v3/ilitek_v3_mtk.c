@@ -198,13 +198,11 @@ void ili_irq_disable(void)
 		goto out;
 
 	if (!ilits->irq_num) {
-		ILI_ERR("gpio_to_irq (%d) is incorrect\n", ilits->irq_num);
 		goto out;
 	}
 
 	disable_irq_nosync(ilits->irq_num);
 	atomic_set(&ilits->irq_stat, DISABLE);
-	ILI_DBG("Disable irq success\n");
 
 out:
 	spin_unlock_irqrestore(&ilits->irq_spin, flag);
@@ -220,13 +218,11 @@ void ili_irq_enable(void)
 		goto out;
 
 	if (!ilits->irq_num) {
-		ILI_ERR("gpio_to_irq (%d) is incorrect\n", ilits->irq_num);
 		goto out;
 	}
 
 	enable_irq(ilits->irq_num);
 	atomic_set(&ilits->irq_stat, ENABLE);
-	ILI_DBG("Enable irq success\n");
 
 out:
 	spin_unlock_irqrestore(&ilits->irq_spin, flag);

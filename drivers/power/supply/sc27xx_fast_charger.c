@@ -638,7 +638,7 @@ static int sfcp_status_end(void)
 	return SQC_ADAPTER_OK;
 }
 
-static int sfcp_get_charger_type(int *chg_type)
+static int sfcp_get_charger_type(unsigned int *chg_type)
 {
 	struct sc27xx_fchg_info *info =
 		(struct sc27xx_fchg_info *)sqc_sfcp_ops_node.arg;
@@ -685,7 +685,7 @@ out_loop:
 	return 0;
 }
 
-static int sfcp_set_charger_type(int type)
+static int sfcp_set_charger_type(unsigned int type)
 {
 	int ret = 0;
 	struct sc27xx_fchg_info *info =

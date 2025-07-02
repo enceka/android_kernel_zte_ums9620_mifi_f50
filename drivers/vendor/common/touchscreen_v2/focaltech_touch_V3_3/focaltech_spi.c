@@ -228,11 +228,9 @@ err_write:
 	}
 
 	udelay(CS_HIGH_DELAY);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		if (ret < 0) {
-			tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
-		}
-#endif
+	if (ret < 0) {
+		tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
+	}
 	mutex_unlock(&ts_data->bus_lock);
 	return ret;
 }
@@ -337,10 +335,8 @@ err_read:
 	}
 
 	udelay(CS_HIGH_DELAY);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		if (ret < 0)
-			tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
-#endif
+	if (ret < 0)
+		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
 	mutex_unlock(&ts_data->bus_lock);
 	return ret;
 }

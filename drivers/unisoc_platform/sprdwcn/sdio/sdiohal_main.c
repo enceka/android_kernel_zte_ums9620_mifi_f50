@@ -1005,10 +1005,9 @@ static int sdiohal_suspend(struct device *dev)
 
 	if (g_match_config && g_match_config->unisoc_wcn_slp) {
 		if (unlikely(!sdio_wait_pub_int_done())) {
-			atomic_set(&p_data->flag_suspending, 0);
 			pr_err("[%s]PUB int xmit_lock:%d\n", __func__,
 					mutex_is_locked(&p_data->xmit_lock));
-			goto fail_to_suspend;
+			goto power_notify;
 		}
 		sdio_record_power_notify(false);
 	}
@@ -1029,11 +1028,27 @@ static int sdiohal_suspend(struct device *dev)
 			p_data->sdcb.op_enter_comm, p_data->sdcb.op_enter_builtin_addr[0],
 			p_data->op_enter_ns);
 	}
+
+	if (atomic_read(&p_data->pm_sel) & BIT(SDIOHAL_PM_SEL_TX)) {
+		pr_warn("[%s]Data is being sent, terminating sleep\n", __func__);
+		goto fail_to_suspend;
+	}
+
 	/* WARNING: wait for sending to complete? */
 	pr_info("[%s]done xmit_lock:%d\n", __func__, mutex_is_locked(&p_data->xmit_lock));
 	return 0;
 
 fail_to_suspend:
+	mdbg_device_lock_notify();
+
+	if (WCN_CARD_EXIST(&p_data->xmit_cnt)) {
+		func = container_of(dev, struct sdio_func, dev);
+		func->card->host->pm_flags &= ~MMC_PM_KEEP_POWER;
+	}
+	atomic_set(&p_data->flag_suspending, 1);
+	atomic_set(&p_data->flag_resume, 1);
+
+power_notify:
 	for (chn = chn - 1; chn >= 0; chn--) {
 		sdiohal_ops = chn_ops(chn);
 		if (sdiohal_ops && sdiohal_ops->power_notify) {
@@ -1045,6 +1060,7 @@ fail_to_suspend:
 
 	mdbg_device_unlock_notify();
 	pr_info("[%s]failed xmit_lock:%d\n", __func__, mutex_is_locked(&p_data->xmit_lock));
+	atomic_set(&p_data->flag_suspending, 0);
 
 	return -EBUSY;
 }

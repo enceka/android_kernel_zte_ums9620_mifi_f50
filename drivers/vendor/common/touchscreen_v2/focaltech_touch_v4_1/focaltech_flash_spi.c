@@ -688,8 +688,10 @@ static int fts_fw_download(const u8 *buf, u32 len, bool need_reset)
 {
     int ret = 0;
     int i = 0;
+    int tp_time = 0;
     struct fts_upgrade *upg = fwupgrade;
 
+    tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
     FTS_INFO("fw upgrade download function");
     if (!upg || !upg->ts_data || !upg->setting_nf) {
         FTS_ERROR("upgrade/ts_data/setting_nf is null");
@@ -722,7 +724,8 @@ static int fts_fw_download(const u8 *buf, u32 len, bool need_reset)
 err_fw_download:
     fts_irq_enable();
     upg->ts_data->fw_loading = 0;
-
+    tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+    TPD_DMESG("tp_time fts fw upgrade time:%d.", tp_time);
     return ret;
 }
 
@@ -869,7 +872,8 @@ static int fts_fw_resume(bool need_reset, enum FW_TYPE fw_type)
 
     if (!fw_buf || (fwlen < FTS_MIN_LEN)) {
         FTS_ERROR("fw/len(%d) is invalid", fwlen);
-        return -EINVAL;
+        ret = -EINVAL;
+        goto _release_firmware;
     }
 
     if ((fw_type == FW_GESTURE) ||
@@ -989,10 +993,25 @@ int fts_enter_gesture_fw(void)
     return fts_fw_resume(true, FW_GESTURE);
 }
 
+#if FTS_THREE_IN_ONE
 int fts_enter_normal_fw(void)
 {
+
     return fts_fw_resume(true, FW_NORMAL);
 }
+#else
+int fts_enter_normal_fw(void)
+{
+	int ret = 0;
+
+	ret = fts_wait_tp_to_valid(10, 50);
+	if(ret && fts_data->fw_loading) {
+		fts_fw_resume(true, FW_NORMAL);
+	}
+
+	return 0;
+}
+#endif
 
 static int fts_fwupg_get_module_info(struct fts_upgrade *upg)
 {
@@ -1037,7 +1056,7 @@ static int fts_get_fw_file_via_request_firmware(struct fts_upgrade *upg)
     ret = request_firmware(&fw, fwname, upg->ts_data->dev);
 #ifdef FTS_DEFAULT_FIRMWARE
 	if (ret < 0) {
-		FTS_ERROR("%s: request firmware fail, try request default firmware.");
+		FTS_ERROR("request firmware fail, try request default firmware.");
 		snprintf(fwname, FILE_NAME_LENGTH, "%s_%s.bin",
 		 	FTS_DEFAULT_FIRMWARE,
 		 	upg->module_info->vendor_name);
@@ -1173,9 +1192,7 @@ static void fts_fwupg_work(struct work_struct *work)
 	/* get fw */
 	ret = fts_fwupg_get_fw_file(upg);
 	if (ret < 0) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
 		FTS_ERROR("get file fail, can't upgrade");
 		return;
 	}
@@ -1187,9 +1204,7 @@ static void fts_fwupg_work(struct work_struct *work)
 
 	ret = fts_fw_download(upg->fw, upg->fw_length, true);
 	if (ret < 0) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 		FTS_ERROR("fw auto download failed");
 	} else {
 		msleep(50);

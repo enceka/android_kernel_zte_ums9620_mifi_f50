@@ -201,12 +201,16 @@ static int p_point_num = 0xFFFF;
 static uint8_t p_stylus_num = 0xFF;
 static int probe_fail_flag;
 #if defined(HX_USB_DETECT_GLOBAL)
-bool USB_detect_flag;
+bool USB_detect_flag = false;
 #endif
 
 #if defined(HX_HEADSET_MODE)
-bool HEADSET_detect_flag;
-#endif 
+bool HEADSET_detect_flag = false;
+#endif
+
+#ifdef HX_HOR_VER_SWITCH_MODE
+int HOR_VER_SWITCH_detect_flag = 0;
+#endif
 
 
 #if defined(HX_GESTURE_TRACK)
@@ -958,10 +962,12 @@ int himax_input_register(struct himax_ts_data *ts)
 			ts->pdata->abs_pressure_max,
 			ts->pdata->abs_pressure_fuzz, 0);
 #if !defined(HX_PROTOCOL_A)
+#ifdef HIMAX_REPORT_PRESSURE_EN
 	input_set_abs_params(ts->input_dev, ABS_MT_PRESSURE,
 			ts->pdata->abs_pressure_min,
 			ts->pdata->abs_pressure_max,
 			ts->pdata->abs_pressure_fuzz, 0);
+#endif
 	input_set_abs_params(ts->input_dev, ABS_MT_WIDTH_MAJOR,
 			ts->pdata->abs_width_min,
 			ts->pdata->abs_width_max,
@@ -1079,7 +1085,7 @@ static int i_get_FW(void)
 	int result = NO_ERR;
 
 	ret = request_firmware(&hxfw, g_fw_boot_upgrade_name, hx_s_ts->dev);
-	I("%s: request file %s finished\n", __func__, g_fw_boot_upgrade_name);
+	I("%s: request file %s finished, ret = %d\n", __func__, g_fw_boot_upgrade_name, ret);
 	if (ret < 0) {
 #if defined(HX_FIRMWARE_HEADER)
 		if (get_fw_index(HX_FWTYPE_NORMAL) >= 0) {
@@ -1097,7 +1103,19 @@ static int i_get_FW(void)
 		}
 #else
 		E("%s,%d: error code = %d\n", __func__, __LINE__, ret);
+#ifdef HIMAX_DEFAULT_FIRMWARE
+		I("%s,%d: try to request default fw %s\n", __func__, __LINE__, DEFAULT_UPDATE_FIRMWARE_NAME);
+		ret = request_firmware(&hxfw, DEFAULT_UPDATE_FIRMWARE_NAME, hx_s_ts->dev);
+		if (ret < 0) {
+			E("request default fw fail - %d\n", ret);
+		} else {
+			I("request default fw success\n");
+			result = NO_ERR;
+			return result;
+		}
+#endif
 		result = OPEN_FILE_FAIL;
+		tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
 #endif
 	}
 
@@ -1119,11 +1137,12 @@ update_retry:
 		E("%s: TP upgrade error, upgrade_times = %d\n",
 				__func__, upgrade_times);
 
-		if (upgrade_times < 3)
+		if (upgrade_times < 3) {
 			goto update_retry;
-		else
+		} else {
 			result = -1;
-
+			tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
+		}
 	} else {
 		result = 1;/*upgrade success*/
 		I("%s: TP upgrade OK\n", __func__);
@@ -1169,8 +1188,10 @@ static void himax_excp_hw_reset(void)
 	I("%s: START EXCEPTION Reset\n", __func__);
 #if defined(HX_ZERO_FLASH)
 	result = hx_s_core_fp._0f_op_file_dirly(g_fw_boot_upgrade_name);
-	if (result)
+	if (result) {
 		E("%s: update FW fail, code[%d]!!\n", __func__, result);
+		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
+	}
 #else
 	hx_s_core_fp._excp_ic_reset();
 #endif
@@ -1655,6 +1676,20 @@ void himax_headset_detect_func(void)
 
 }
 #endif
+
+
+/*
+Horizontal and vertical screen switching
+*/
+#if defined(HX_HOR_VER_SWITCH_MODE)
+void himax_hor_ver_switch_func(int switch_flag)
+{
+	hx_s_core_fp._set_hor_ver_switch_enable(switch_flag);
+
+}
+#endif
+
+
 
 static int himax_ts_work_status(struct himax_ts_data *ts)
 {
@@ -2513,7 +2548,9 @@ static void himax_report_all_leave_event(struct himax_ts_data *ts)
 		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
 		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
 		input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
+#ifdef HIMAX_REPORT_PRESSURE_EN
 		input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
+#endif
 #endif
 	}
 	input_report_key(ts->input_dev, BTN_TOUCH, 0);
@@ -2561,6 +2598,36 @@ static void himax_point_report(struct himax_ts_data *ts)
 			if (tpd_cdev->zte_tp_algo) {
 				tpd_touch_press(ts->input_dev, g_target_report_data->p[i].x, g_target_report_data->p[i].y,
 							i, g_target_report_data->p[i].w, 0);
+			} else {
+#if !defined(HX_PROTOCOL_A)
+				input_mt_slot(ts->input_dev, i);
+				input_mt_report_slot_state(ts->input_dev,
+					MT_TOOL_FINGER, 1);
+#else
+				input_report_key(ts->input_dev, BTN_TOUCH, 1);
+#endif
+				input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR,
+					g_target_report_data->p[i].w);
+#if !defined(HX_PROTOCOL_A)
+				input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR,
+					g_target_report_data->p[i].w);
+#ifdef HIMAX_REPORT_PRESSURE_EN
+				input_report_abs(ts->input_dev, ABS_MT_PRESSURE,
+					g_target_report_data->p[i].w);
+#endif
+#else
+				input_report_abs(ts->input_dev, ABS_MT_TRACKING_ID,
+					i + 1);
+#endif
+				input_report_abs(ts->input_dev, ABS_MT_POSITION_X,
+					g_target_report_data->p[i].x);
+				input_report_abs(ts->input_dev, ABS_MT_POSITION_Y,
+					g_target_report_data->p[i].y);
+#if !defined(HX_PROTOCOL_A)
+				ts->last_slot = i;
+#else
+				input_mt_sync(ts->input_dev);
+#endif
 			}
 #else
 #if !defined(HX_PROTOCOL_A)
@@ -2575,8 +2642,10 @@ static void himax_point_report(struct himax_ts_data *ts)
 #if !defined(HX_PROTOCOL_A)
 			input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR,
 					g_target_report_data->p[i].w);
+#ifdef HIMAX_REPORT_PRESSURE_EN
 			input_report_abs(ts->input_dev, ABS_MT_PRESSURE,
 					g_target_report_data->p[i].w);
+#endif
 #else
 			input_report_abs(ts->input_dev, ABS_MT_TRACKING_ID,
 					i + 1);
@@ -2595,6 +2664,18 @@ static void himax_point_report(struct himax_ts_data *ts)
 #ifdef HX_REPORT_BY_ZTE_ALGO
 			if (tpd_cdev->zte_tp_algo)
 				tpd_touch_release(ts->input_dev, i);
+			else {
+#if !defined(HX_PROTOCOL_A)
+				input_mt_slot(ts->input_dev, i);
+				input_mt_report_slot_state(ts->input_dev,
+					MT_TOOL_FINGER, 0);
+				input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
+				input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
+#ifdef HIMAX_REPORT_PRESSURE_EN
+				input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
+#endif
+#endif
+			}
 #else
 #if !defined(HX_PROTOCOL_A)
 			input_mt_slot(ts->input_dev, i);
@@ -2602,7 +2683,9 @@ static void himax_point_report(struct himax_ts_data *ts)
 					MT_TOOL_FINGER, 0);
 			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
 			input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
+#ifdef HIMAX_REPORT_PRESSURE_EN
 			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
+#endif
 #endif
 #endif
 		}
@@ -2648,9 +2731,21 @@ static void himax_point_leave(struct himax_ts_data *ts)
 #endif
 #ifdef HX_REPORT_BY_ZTE_ALGO
 	for (i = 0; i < ts->nFinger_support; i++) {
-		I("%s:touch up id: %d\n", __func__, i);
 		if (tpd_cdev->zte_tp_algo)
 			tpd_touch_release(ts->input_dev, i);
+		else {
+#if !defined(HX_PROTOCOL_A)
+			for (i = 0; i < ts->nFinger_support; i++) {
+				input_mt_slot(ts->input_dev, i);
+				input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
+				input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
+				input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
+#ifdef HIMAX_REPORT_PRESSURE_EN
+				input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
+#endif
+			}
+#endif
+		}
 	}
 	tpd_clean_all_event();
 #else
@@ -2660,7 +2755,9 @@ static void himax_point_leave(struct himax_ts_data *ts)
 		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
 		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
 		input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
+#ifdef HIMAX_REPORT_PRESSURE_EN
 		input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
+#endif
 	}
 #endif
 #endif

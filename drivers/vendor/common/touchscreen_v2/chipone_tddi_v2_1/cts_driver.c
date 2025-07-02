@@ -4,7 +4,6 @@
 #define LOG_TAG         "SPIDrv"
 #endif
 
-#include <linux/power_supply.h>
 #include "cts_config.h"
 #include "cts_platform.h"
 #include "cts_core.h"
@@ -12,7 +11,6 @@
 /* #include "cts_charger_detect.h"
 #include "cts_earjack_detect.h"
 #include "cts_oem.h" */
-#include "ztp_common.h"
 
 static void cts_resume_work_func(struct work_struct *work);
 #ifdef CFG_CTS_DRM_NOTIFIER
@@ -31,7 +29,6 @@ module_param_named(debug_log, cts_show_debug_log, bool, 0660);
 MODULE_PARM_DESC(debug_log, "Show debug log control");
 
 struct chipone_ts_data *g_cts_data;
-
 int cts_suspend(struct chipone_ts_data *cts_data)
 {
     int ret;
@@ -42,7 +39,7 @@ int cts_suspend(struct chipone_ts_data *cts_data)
     ret = cts_suspend_device(&cts_data->cts_dev);
     cts_unlock_device(&cts_data->cts_dev);
 
-	if (ret)
+    if (ret)
         cts_err("Suspend device failed %d", ret);
 
     ret = cts_stop_device(&cts_data->cts_dev);
@@ -87,10 +84,10 @@ int cts_resume(struct chipone_ts_data *cts_data)
 #ifdef CFG_CTS_GESTURE
     if (cts_is_gesture_wakeup_enabled(&cts_data->cts_dev)) {
         ret = cts_plat_disable_irq_wake(cts_data->pdata);
-		if (ret)
+        if (ret)
             cts_warn("Disable IRQ wake failed %d", ret);
         ret = cts_plat_disable_irq(cts_data->pdata);
-		if (ret < 0)
+        if (ret < 0)
             cts_err("Disable IRQ failed %d", ret);
     }
 #endif /* CFG_CTS_GESTURE */
@@ -159,10 +156,10 @@ static int fb_notifier_callback(struct notifier_block *nb,
         unsigned long action, void *data)
 {
     volatile int blank;
-    const struct cts_platform_data *pdata =
+/*     const struct cts_platform_data *pdata =
     container_of(nb, struct cts_platform_data, fb_notifier);
     struct chipone_ts_data *cts_data =
-    container_of(pdata->cts_dev, struct chipone_ts_data, cts_dev);
+    container_of(pdata->cts_dev, struct chipone_ts_data, cts_dev); */
     struct fb_event *evdata = data;
 
     cts_info("FB notifier callback");
@@ -172,14 +169,13 @@ static int fb_notifier_callback(struct notifier_block *nb,
             blank = *(int *)evdata->data;
             if (blank == FB_BLANK_UNBLANK) {
                 /* cts_resume(cts_data); */
-                queue_work(cts_data->workqueue,
-                    &cts_data->ts_resume_work);
+                change_tp_state(LCD_ON);//zte_add
                 return NOTIFY_OK;
             }
         } else if (action == FB_EARLY_EVENT_BLANK) {
             blank = *(int *)evdata->data;
             if (blank == FB_BLANK_POWERDOWN) {
-                cts_suspend(cts_data);
+                change_tp_state(LCD_OFF);
                 return NOTIFY_OK;
             }
         }
@@ -202,7 +198,7 @@ static int cts_init_pm_fb_notifier(struct chipone_ts_data *cts_data)
         if (active_panel) {
             ret =drm_panel_notifier_register(active_panel,
                     &cts_data->pdata->fb_notifier);
-		if (ret)
+            if (ret)
                 cts_err("register drm_notifier failed. ret=%d\n", ret);
         }
         return ret;
@@ -222,7 +218,7 @@ static int cts_deinit_pm_fb_notifier(struct chipone_ts_data *cts_data)
         if (active_panel) {
             ret = drm_panel_notifier_unregister(active_panel,
                     &cts_data->pdata->fb_notifier);
-			if (ret)
+            if (ret)
                 cts_err("Error occurred while unregistering drm_notifier.\n");
         }
         return ret;
@@ -255,7 +251,7 @@ static int check_dt(struct device_node *np)
             return 0;
         }
     }
-	if (node)
+    if (node)
         cts_err("%s: %s not actived", __func__, node->name);
     return -ENODEV;
 }
@@ -341,90 +337,6 @@ static int cts_get_panel(void)
 }
 #endif
 
-#ifdef CONFIG_CTS_CHARGER_DETECT
-/* static int cts_get_charger_ststus(int *status)
-{
-	static struct power_supply *batt_psy;
-	union power_supply_propval val = { 0, };
-
-	if (batt_psy == NULL)
-		batt_psy = power_supply_get_by_name("battery");
-	if (batt_psy) {
-		batt_psy->desc->get_property(batt_psy, POWER_SUPPLY_PROP_STATUS, &val);
-	}
-	if ((val.intval == POWER_SUPPLY_STATUS_CHARGING) ||
-		(val.intval == POWER_SUPPLY_STATUS_FULL)){
-		*status = 1;
-	} else {
-		*status = 0;
-	}
-	cts_info("charger status:%d", *status);
-	return 0;
-}
-
-static void cts_delayed_work_charger(struct work_struct *work)
-{
-	int ret, status;
-	struct chipone_ts_data *cts_data;
-
-	cts_data = container_of(work, struct chipone_ts_data, charger_work.work);
-
-	ret = cts_get_charger_ststus(&status);
-	if (ret) {
-		cts_err("get charger status err");
-		return;
-	} else {
-		cts_info("charger status:%d", status);
-	}
-	if (!cts_is_device_enabled(&cts_data->cts_dev)) {
-		cts_err("Charger status changed, but device is not enabled");
-		cts_data->cts_dev.rtdata.charger_exist = status;
-		return;
-	}
-	if (status) {
-		cts_charger_plugin(&cts_data->cts_dev);
-	} else {
-		cts_charger_plugout(&cts_data->cts_dev);
-	}
-}
-
-static int cts_charger_notify_call(struct notifier_block *nb, unsigned long event, void *data)
-{
-	struct power_supply *psy = data;
-	const struct cts_platform_data *pdata = container_of(nb, struct cts_platform_data, charger_notifier);
-	struct chipone_ts_data *cts_data = container_of(pdata->cts_dev, struct chipone_ts_data, cts_dev);
-
-	if (event != PSY_EVENT_PROP_CHANGED) {
-		return NOTIFY_DONE;
-	}
-
-	if ((strcmp(psy->desc->name, "usb") == 0)
-	    || (strcmp(psy->desc->name, "ac") == 0)) {
-		queue_delayed_work(cts_data->workqueue, &cts_data->charger_work, msecs_to_jiffies(2000));
-	}
-
-	return NOTIFY_DONE;
-}
-
-static int cts_init_charger_notifier(struct chipone_ts_data *cts_data)
-{
-	int ret;
-
-	cts_info("Init Charger notifier");
-
-	cts_data->pdata->charger_notifier.notifier_call = cts_charger_notify_call;
-	ret = power_supply_reg_notifier(&cts_data->pdata->charger_notifier);
-	return ret;
-}
-
-static int cts_deinit_charger_notifier(struct chipone_ts_data *cts_data)
-{
-	cts_info("Deinit Charger notifier");
-
-	power_supply_unreg_notifier(&cts_data->pdata->charger_notifier);
-	return 0;
-} */
-#endif
 
 #ifdef CONFIG_CTS_I2C_HOST
 static int cts_driver_probe(struct i2c_client *client,
@@ -571,13 +483,13 @@ static int cts_driver_probe(struct spi_device *client)
 
     cts_init_esd_protection(cts_data);
 
-	ret = cts_tool_init(cts_data);
-	if (ret < 0)
-		cts_warn("Init tool node failed %d", ret);
+    ret = cts_tool_init(cts_data);
+    if (ret < 0)
+        cts_warn("Init tool node failed %d", ret);
 
-	ret = cts_sysfs_add_device(&client->dev);
-	if (ret < 0)
-		cts_warn("Add sysfs entry for device failed %d", ret);
+    ret = cts_sysfs_add_device(&client->dev);
+    if (ret < 0)
+        cts_warn("Add sysfs entry for device failed %d", ret);
 
 #ifdef CONFIG_CTS_PM_FB_NOTIFIER
     ret = cts_init_pm_fb_notifier(cts_data);
@@ -592,19 +504,13 @@ static int cts_driver_probe(struct spi_device *client)
         cts_err("Request IRQ failed %d", ret);
         goto err_register_fb;
     }
-
+#if 0
 #ifdef CONFIG_CTS_CHARGER_DETECT
-    /* ret = cts_charger_detect_init(cts_data);
+    ret = cts_charger_detect_init(cts_data);
     if (ret)
-        cts_err("Init charger detect failed %d", ret); */
+        cts_err("Init charger detect failed %d", ret);
         /* Ignore this error */
-	/* INIT_DELAYED_WORK(&cts_data->charger_work, cts_delayed_work_charger);
-	queue_delayed_work(cts_data->workqueue, &cts_data->charger_work, msecs_to_jiffies(1000));
-	ret = cts_init_charger_notifier(cts_data);
-	if (ret) {
-		cts_err("Init Charger notifer failed %d", ret);
-		goto err_deinit_pm_fb;
-	} */
+#endif
 #endif
 
 #ifdef CONFIG_CTS_EARJACK_DETECT
@@ -628,7 +534,7 @@ static int cts_driver_probe(struct spi_device *client)
     /* Init firmware upgrade work and schedule */
     INIT_DELAYED_WORK(&cts_data->fw_upgrade_work, cts_firmware_upgrade_work);
     queue_delayed_work(cts_data->workqueue, &cts_data->fw_upgrade_work,
-        msecs_to_jiffies(3 * 1000));
+        msecs_to_jiffies(1 * 1000));
 
     INIT_WORK(&cts_data->ts_resume_work, cts_resume_work_func);
 	
@@ -645,8 +551,6 @@ static int cts_driver_probe(struct spi_device *client)
 #endif
 #ifdef CONFIG_CTS_CHARGER_DETECT
     /* cts_charger_detect_deinit(cts_data); */
-	/* cts_deinit_charger_notifier(cts_data);
-err_deinit_pm_fb: */
 #endif
     cts_plat_free_irq(cts_data->pdata);
 
@@ -695,7 +599,7 @@ err_deinit_platform_data:
     kfree(cts_data->pdata);
 err_free_cts_data:
     kfree(cts_data);
-
+    tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_CHIPONE;
     cts_err("Probe failed %d", ret);
 
     return ret;
@@ -719,12 +623,11 @@ static int cts_driver_remove(struct spi_device *client)
 #endif
     if (cts_data) {
         ret = cts_stop_device(&cts_data->cts_dev);
-		if (ret)
+        if (ret)
             cts_warn("Stop device failed %d", ret);
 
 #ifdef CONFIG_CTS_CHARGER_DETECT
     /* cts_charger_detect_deinit(cts_data); */
-	/* cts_deinit_charger_notifier(cts_data); */
 #endif
 
 #ifdef CONFIG_CTS_EARJACK_DETECT
@@ -754,17 +657,17 @@ static int cts_driver_remove(struct spi_device *client)
         /* cts_oem_deinit(cts_data); */
 
 #ifdef CFG_CTS_HEARTBEAT_MECHANISM
-		if (cts_data->heart_workqueue)
-			destroy_workqueue(cts_data->heart_workqueue);
+        if (cts_data->heart_workqueue)
+            destroy_workqueue(cts_data->heart_workqueue);
 #endif
 
 #ifdef CONFIG_CTS_ESD_PROTECTION
-		if (cts_data->esd_workqueue)
-			destroy_workqueue(cts_data->esd_workqueue);
+        if (cts_data->esd_workqueue)
+            destroy_workqueue(cts_data->esd_workqueue);
 #endif
 
-		if (cts_data->workqueue)
-			destroy_workqueue(cts_data->workqueue);
+        if (cts_data->workqueue)
+            destroy_workqueue(cts_data->workqueue);
 
         cts_deinit_platform_data(cts_data->pdata);
 
@@ -1086,7 +989,7 @@ static struct spi_driver cts_spi_driver = {
 
 int cts_driver_init(void)
 {
-    cts_info("Chipone touch driver init, version: "CFG_CTS_DRIVER_VERSION);
+    cts_info("Chipone touch driver init 20230909, version: "CFG_CTS_DRIVER_VERSION);
 
     /* zte_add */
 	if (get_tp_chip_id() == 0) {

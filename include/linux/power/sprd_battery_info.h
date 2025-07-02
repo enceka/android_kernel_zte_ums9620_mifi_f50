@@ -186,6 +186,8 @@ struct sprd_battery_info {
 	int batt_id_kohm;
 	int batt_id_index;
 	int *batt_id_list;
+	int batt_id_pullup_kohm;
+	int batt_id_ref_vol;
 	struct device_node *of_node;
 	int fullbatt_advance_level;
 

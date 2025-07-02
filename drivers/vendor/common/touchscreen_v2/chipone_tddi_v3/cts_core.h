@@ -155,6 +155,10 @@ struct cts_device_touch_info {
 	u8  num_msg;
 
 	struct cts_device_touch_msg msgs[CFG_CTS_MAX_TOUCH_NUM];
+#ifdef CFG_CTS_POINT_CHECK_SUM
+	u8 check_sum_data;
+	u8 check_sum_data_inverse;
+#endif
 };
 
 /** Gesture trace point read back from chip */

@@ -22,6 +22,7 @@
 #include <linux/types.h>
 #include <linux/wait.h>
 #include <linux/vmalloc.h>
+#include <linux/delay.h>
 
 #define GNSS_RING_R			0
 #define GNSS_RING_W			1
@@ -234,8 +235,13 @@ static int gnss_ring_write(struct gnss_ring_t *pring, char *buf, int len)
 	pr_debug("start=%p, end=%p, buf=%p, len=%d, wp=%p, rst_rp[%d]\n",
 		 pstart, pend, buf, len, pring->wp, pring->reset_rp);
 
+	while ((gnss_ring_free_space() - 1) < (unsigned long)len) {
+		pr_info("%s: remaining ringbuff not enough\n", __func__);
+		msleep(500);
+	}
+
 	if (gnss_ring_over_loop(pring, len, GNSS_RING_W)) {
-		pr_debug("Ring overloop\n");
+		pr_info("Ring overloop\n");
 		len1 = pend - pring->wp + 1;
 		len2 = len - len1;
 		pring->memcpy_wr(pring->wp, buf, len1);

@@ -742,9 +742,7 @@ int sitronix_fw_upgrade_handler(void *data)
 	ret = sitronix_do_upgrade();
 	if (ret < 0) {
 		sterr("%s: Failed to Host Download\n", __func__);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 		return -EINVAL;
 	}
 #ifdef SITRONIX_INTERFACE_SPI
@@ -972,9 +970,9 @@ static int sitronix_ts_probe(struct platform_device *pdev)
 		sterr("Failed to create proc node, err: %d\n", ret);
 		goto err_remove_st_proc;
 	}
-	tpd_cdev->TP_have_registered = true;
 	tpd_cdev->tp_chip_id = TS_CHIP_SITRONIX;
 	sitronix_register_fw_class();
+	tpd_cdev->TP_have_registered = true;
 	if (sitronix_touch_bootup_update_check()){
 		sterr("Failed fw upgrade\n");
 	}
@@ -1050,10 +1048,7 @@ err_return:
 		kfree(rbuf);
 		rbuf = NULL;
 	}
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_SITRONIX)
-		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_SITRONIX;
-#endif
+	tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_SITRONIX;
 	return ret;
 }
 

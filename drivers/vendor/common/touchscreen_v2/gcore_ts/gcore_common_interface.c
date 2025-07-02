@@ -381,9 +381,7 @@ static int tpd_enable_wakegesture(struct ztp_device *cdev, int enable)
 
 	if (gdev->tp_suspend) {
 		cdev->tp_suspend_write_gesture = true;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SUSPEND_GESTURE_OPEN_NO);
-#endif
 	}
 	gdev->gesture_wakeup_en = enable;
 	return enable;
@@ -520,6 +518,7 @@ int gcore_register_fw_class(void)
 	tpd_cdev->get_tp_self_test_result = tpd_test_cmd_show;
 	tpd_cdev->max_x = TOUCH_SCREEN_X_MAX;
 	tpd_cdev->max_y = TOUCH_SCREEN_Y_MAX;
+	tpd_cdev->input = gdev->input_device;
 #ifdef GCORE_WDT_RECOVERY_ENABLE
 	tpd_cdev->tpd_esd_check = gts_esd_check;
 	gdev->ts_stat = 0;

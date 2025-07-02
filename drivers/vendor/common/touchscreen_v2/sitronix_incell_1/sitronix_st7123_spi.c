@@ -106,9 +106,7 @@ static int sitronix_ts_spi_read(uint16_t addr, uint8_t *data, uint16_t len, void
 	if (retry > SPI_RETRY_COUNT) {
 		sterr("%s: Failed to complete SPI transfer, error = %d , IC status = %d\n", __func__, ret, status);
 		ret = -EIO;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
-#endif
 	}
 	memcpy(data, spi_buf + ST_SPI_FW_ADDRESS_LEN + ST_SPI_FW_DUMMY_LEN, len);
 	return ret;
@@ -188,9 +186,7 @@ static int sitronix_ts_spi_write(uint16_t addr, uint8_t *data, uint16_t len, voi
 	if (retry > SPI_RETRY_COUNT) {
 		sterr("%s: Failed to complete SPI transfer, error = %d , IC status = %d\n", __func__, ret, status);
 		ret = -EIO;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
-#endif
 	}
 
 	return ret;

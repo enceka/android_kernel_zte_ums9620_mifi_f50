@@ -351,10 +351,7 @@ static int goodix_parse_firmware(struct firmware_data *fw_data)
 	fw_summary->checksum = le32_to_cpu(fw_summary->checksum);
 	if (checksum != fw_summary->checksum) {
 		ts_err("Bad firmware, cheksum error");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("Bad firmware, cheksum error");
 		tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		r = -EINVAL;
 		goto err_size;
 	}
@@ -1066,9 +1063,7 @@ err_fw_prepare:
 	if (!ret) {
 		ts_info("Firmware update successfully");
 	} else {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 		ts_err("Firmware update failed, ret:%d", ret);
 	}
 
@@ -1362,9 +1357,7 @@ static int goodix_fw_update_thread(void *data)
 		r = goodix_request_firmware(&fwu_ctrl->fw_data,
 						fwu_ctrl->fw_name);
 		if (r < 0) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
 			goto out;
 		}
 

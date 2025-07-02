@@ -1220,7 +1220,7 @@ static int pd_get_cable_type(int *type)
 	return 0;
 }
 
-static int pd_set_sqc_cap(int mV, int mA)
+static int pd_set_sqc_cap(int type, int mV, int mA)
 {
 	struct sprd_fchg_info *info =
 		(struct sprd_fchg_info *)sqc_pd_ops_node.arg;
@@ -1231,9 +1231,14 @@ static int pd_set_sqc_cap(int mV, int mA)
 		return SQC_ADAPTER_ERROR;
 	}
 
-	pr_info("[SQC-HW]: [%s] mV %d, mA %d\n", __func__, mV, mA);
+	pr_info("[SQC-HW]: [%s] type: %s, mV %d, mA %d\n", __func__, type ? "PPS" : "PD", mV, mA);
 
-	if (info->pps_enable) {
+	if  (type == SQC_PDOS_TYPE_APDO) {
+		ret = sprd_enable_pps(info, true);
+		if (ret)
+			dev_err(info->dev, "[SQC-HW]%s sprd_enable_pps failed disable, ret:%d\n",
+				__func__, ret);
+
 		ret = sprd_pps_adjust_current(info, mA * 1000);
 		if (ret)
 			dev_err(info->dev, "[SQC-HW]%s sprd_pps_adjust_current failed, ret:%d\n",
@@ -1243,7 +1248,7 @@ static int pd_set_sqc_cap(int mV, int mA)
 		if (ret)
 			dev_err(info->dev, "[SQC-HW]%s sprd_pps_adjust_voltage failed, ret:%d\n",
 				__func__, ret);
-	} else if (info->pd_enable) {
+	} else {
 		ret = sprd_enable_pps(info, false);
 		if (ret)
 			dev_err(info->dev, "[SQC-HW]%s sprd_enable_pps failed disable, ret:%d\n",

@@ -71,6 +71,9 @@ extern uint32_t CFG_TABLE_FLASH_ADDR_T;
 #if defined(HX_HEADSET_MODE)
 	extern void himax_headset_detect_func(void);
 #endif
+#if defined(HX_HOR_VER_SWITCH_MODE)
+void himax_hor_ver_switch_func(int switch_flag);
+#endif
 
 
 #if defined(HX_RST_PIN_FUNC)

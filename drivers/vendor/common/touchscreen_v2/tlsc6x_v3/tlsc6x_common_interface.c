@@ -5,6 +5,7 @@
 #include "tlsc6x_main.h"
 #include "ztp_common.h"
 #include <linux/gpio.h>
+#include <linux/delay.h>
 
 #define TEST_TEMP_LENGTH 8
 #define MAX_ALLOC_BUFF 256
@@ -27,11 +28,17 @@ extern unsigned char real_suspend_flag;
 extern void tlsc6x_tp_cfg_version(void);
 extern int tlsc6x_do_suspend(void);
 extern int tlsc6x_do_resume(void);
+extern void tlsc6x_clear_report_data(struct tlsc6x_data *drvdata);
 
 int tlsc6x_vendor_id = 0;
 int tlsc6x_tptest_result = 0;
 char tlsc6x_criteria_csv_name[MAX_NAME_LEN_50] = { 0 };
 char tlsc6x_vendor_name[MAX_NAME_LEN_50] = { 0 };
+
+#ifdef TLSC_TPD_PROXIMITY
+extern unsigned char tpd_prox_old_state;
+extern int tpd_prox_active;
+#endif
 
 struct tpvendor_t tlsc6x_vendor_l[] = {
 	{0x030F, "YKL_YUYE"},
@@ -192,7 +199,7 @@ int tlsc6x_tp_resume(void *tlsc6x_data)
 
 static int tpd_tlsc6x_shutdown(struct ztp_device *cdev)
 {
-	struct tlsc6x_platform_data *pdata = g_tp_drvdata->platform_data;
+	/* struct tlsc6x_platform_data *pdata = g_tp_drvdata->platform_data; */
 
 	TLSC_FUNC_ENTER();
 	tlsc_info("disable irq");
@@ -200,7 +207,7 @@ static int tpd_tlsc6x_shutdown(struct ztp_device *cdev)
 #ifdef CONFIG_TLSC_POINT_REPORT_CHECK
 	cancel_delayed_work_sync(&g_tp_drvdata->point_report_check_work);
 #endif
-	gpio_direction_output(pdata->reset_gpio_number, 0);
+	/* gpio_direction_output(pdata->reset_gpio_number, 0); */
 	return 0;
 }
 
@@ -236,6 +243,104 @@ static int tpd_test_cmd_show(struct ztp_device *cdev, char *buf)
 	return num_read_chars;
 }
 
+#ifdef TLSC_TPD_PROXIMITY
+static int tlsc_psensor_report_check(struct ztp_device *cdev)
+{
+	u8 buf[20] = { 0 };
+	int ret = -1;
+
+	TLSC_FUNC_ENTER();
+	ret = tlsc6x_i2c_read(g_tp_drvdata->client, buf, 1, buf, 18);
+    if (ret < 0) {
+        tlsc_err("%s read_data i2c_rxdata failed: %d\n", __func__, ret);
+#ifdef CONFIG_TOUCHSCREEN_PSENSOR_REPORT_CHECK
+		queue_delayed_work(cdev->tpd_report_wq, &cdev->psensor_report_check_work, msecs_to_jiffies(200));
+#endif
+		return ret;
+    }
+
+	if (tpd_prox_active) {
+		if (((buf[1] == 0xc0) || (buf[1] == 0xe0)) && (tpd_prox_old_state != buf[1])) {
+			tlsc6x_clear_report_data(g_tp_drvdata);
+			input_report_abs(g_tp_drvdata->ps_input_dev, ABS_DISTANCE, (buf[1] == 0xc0) ? 0 : 1);
+			input_sync(g_tp_drvdata->ps_input_dev);
+			tlsc_info("%s proximity report is %d.\n", __func__, (buf[1] == 0xc0) ? 0 : 1);
+		}
+	}
+	tpd_prox_old_state = buf[1];
+#ifdef CONFIG_TOUCHSCREEN_PSENSOR_REPORT_CHECK
+	queue_delayed_work(cdev->tpd_report_wq, &cdev->psensor_report_check_work, msecs_to_jiffies(200));
+#endif
+	return 0;
+}
+#endif
+
+static int tlsc6x_bbat_test(struct ztp_device *cdev)
+{
+	int ret = 0;
+	u8 dwr = 0;
+	struct tlsc6x_platform_data *pdata = g_tp_drvdata->platform_data;
+
+	TLSC_FUNC_ENTER();
+	cdev->bbat_test_enter = true;
+	cdev->bbat_int_test = false;
+	cdev->bbat_test_result = 0;
+	reinit_completion(&cdev->bbat_test_completion);
+	/* change to direct mode  */
+	if (tlsc6x_set_dd_mode()) {
+		cdev->bbat_test_result = TP_INT_BAAT_TEST_FAIL;
+		goto exit;
+	}
+	// init GPIO_PA[3]INT PIN set output
+	dwr = 0x08;
+	tlsc6x_write_bytes_u16addr_sub(g_tlsc6x_client, 0x0086, &dwr, 1);
+	dwr = 0x07;
+	tlsc6x_write_bytes_u16addr_sub(g_tlsc6x_client, 0x0082, &dwr, 1);
+	dwr = 0x08;
+	tlsc6x_write_bytes_u16addr_sub(g_tlsc6x_client, 0x0083, &dwr, 1);
+
+	//INT PIN output LOW
+	dwr = 0x00;
+	tlsc6x_write_bytes_u16addr_sub(g_tlsc6x_client, 0x0083, &dwr, 1);
+	msleep(10);
+
+	//INT PIN output HIGH
+	dwr = 0x08;
+	tlsc6x_write_bytes_u16addr_sub(g_tlsc6x_client, 0x0083, &dwr, 1);
+	msleep(10);
+
+	if (cdev->bbat_int_test ==  false) {
+		ret = wait_for_completion_timeout(&cdev->bbat_test_completion, msecs_to_jiffies(700));
+		if (!ret) {
+			tlsc_err("tp int test fail");
+			cdev->bbat_test_result = TP_INT_BAAT_TEST_FAIL;
+		}
+	}
+	gpio_direction_output(pdata->reset_gpio_number, 1);
+	msleep(30);
+	dwr = 0x00;
+	ret = tlsc6x_read_bytes_u16addr_sub(g_tlsc6x_client, 0x00, &dwr, 1);
+	if (ret < 0) {
+		tlsc_err("tp rst test fail");
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_RST_BAAT_TEST_FAIL;
+	}
+	gpio_set_value(pdata->reset_gpio_number, 0);
+	msleep(30);
+	dwr = 0x00;
+	ret = tlsc6x_read_bytes_u16addr_sub(g_tlsc6x_client, 0x00, &dwr, 1);
+	if (ret == 0) {
+		tlsc_err("tp rst test fail");
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_RST_BAAT_TEST_FAIL;
+	}
+	gpio_set_value(pdata->reset_gpio_number, 1);
+	msleep(60);
+
+exit:
+	tlsc6x_tpd_reset();
+	cdev->bbat_test_enter = false;
+	return cdev->bbat_test_result;
+}
+
 void tlsc6x_tpd_register_fw_class(void)
 {
 	tlsc_info("tpd_register_fw_class\n");
@@ -250,9 +355,14 @@ void tlsc6x_tpd_register_fw_class(void)
 	tpd_cdev->tp_resume_func = tlsc6x_tp_resume;
 	tpd_cdev->tp_suspend_func = tlsc6x_tp_suspend;
 	tpd_cdev->tpd_shutdown = tpd_tlsc6x_shutdown;
+#ifdef TLSC_TPD_PROXIMITY
+	tpd_cdev->tp_psensor_report_check = tlsc_psensor_report_check;
+#endif
 
 	tpd_cdev->max_x = g_tp_drvdata->platform_data->x_res_max;
 	tpd_cdev->max_y = g_tp_drvdata->platform_data->y_res_max;
+	tpd_cdev->input = g_tp_drvdata->input_dev;
+	tpd_cdev->tp_bbat_test = tlsc6x_bbat_test;
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	zlog_tp_dev.device_name = tlsc6x_vendor_name;
 	zlog_tp_dev.ic_name = "tlsc_tp";

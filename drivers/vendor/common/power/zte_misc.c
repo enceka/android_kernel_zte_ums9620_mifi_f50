@@ -328,7 +328,7 @@ module_param_named(
 int zte_poweroff_charging = 0;
 
 #ifdef CONFIG_ZTE_POWER_SUPPLY_COMMON
-int zte_poweroff_charging_status(void)
+int zte_poweroff_charging_handle(void)
 {
 	struct device_node *np;
 	const char *cmd_line, *s;
@@ -363,6 +363,7 @@ int zte_poweroff_charging_status(void)
 
 	return zte_poweroff_charging;
 }
+
 #else
 static int __init zte_poweroff_charging_handle(char *str)
 {
@@ -377,14 +378,12 @@ static int __init zte_poweroff_charging_handle(char *str)
 	return 0;
 }
 __setup("androidboot.mode=", zte_poweroff_charging_handle);
+#endif
 
 int zte_poweroff_charging_status(void)
 {
-	pr_info("zte_misc: poweroff_charging: %d\n", zte_poweroff_charging);
-
 	return zte_poweroff_charging;
 }
-#endif
 
 EXPORT_SYMBOL_GPL(zte_poweroff_charging_status);
 
@@ -464,9 +463,18 @@ struct zte_misc_ops node_ops_list[] = {
 	{"typec_temp", NULL, NULL, NULL, NULL},
 	{"typec_temp_pmic", NULL, NULL, NULL, NULL},
 	{"typec_temp_debug", NULL, NULL, NULL, NULL},
-	/*breath led boardtest*/
+	/* breath led boardtest */
 	{"is_breath_led_exist", NULL, NULL, NULL, NULL},
+	/* sar boardtest */
+	{"is_sar1_exist", NULL, NULL, NULL, NULL},
+	{"is_sar2_exist", NULL, NULL, NULL, NULL},
+	/* crypto boardtest */
+	{"is_crypto_exist", NULL, NULL, NULL, NULL},
+	/* skey boardtest */
+	{"is_skey_exist", NULL, NULL, NULL, NULL},
 	{"zlog_enable_test", NULL, NULL, NULL, NULL},
+	{"zte_soc_reserved", NULL, NULL, NULL, NULL},
+	{"ib_trim_offset_val", NULL, NULL, NULL, NULL},
 };
 
 static int zte_misc_common_callback_set(const char *val, const struct kernel_param *kp)
@@ -545,6 +553,7 @@ module_param_cb(policy_cap_min, &zte_misc_common_callback, NULL, 0644);
 module_param_cb(policy_cap_max, &zte_misc_common_callback, NULL, 0644);
 module_param_cb(policy_enable, &zte_misc_common_callback, NULL, 0664);
 module_param_cb(bcl_demon_switch, &zte_misc_common_callback, NULL, 0664);
+module_param_cb(ib_trim_offset_val, &zte_misc_common_callback, NULL, 0664);
 
 
 /*
@@ -584,9 +593,17 @@ module_param_cb(typec_temp_debug, &zte_misc_common_callback, NULL, 0644);
 module_param_cb(qc3dp_sleep_mode, &zte_misc_common_callback, NULL, 0644);
 module_param_cb(enable_raw_soc, &zte_misc_common_callback, NULL, 0664);
 
-/*breath led boardtest*/
+/* breath led boardtest */
 module_param_cb(is_breath_led_exist, &zte_misc_common_callback, NULL, 0664);
+/* sar boardtest */
+module_param_cb(is_sar1_exist, &zte_misc_common_callback, NULL, 0664);
+module_param_cb(is_sar2_exist, &zte_misc_common_callback, NULL, 0664);
+/* crypto boardtest */
+module_param_cb(is_crypto_exist, &zte_misc_common_callback, NULL, 0664);
+/* skey boardtest */
+module_param_cb(is_skey_exist, &zte_misc_common_callback, NULL, 0664);
 module_param_cb(zlog_enable_test, &zte_misc_common_callback, NULL, 0664);
+module_param_cb(zte_soc_reserved, &zte_misc_common_callback, NULL, 0664);
 
 int zte_misc_register_callback(struct zte_misc_ops * node_ops, void * arg)
 {
@@ -676,7 +693,9 @@ static int zte_misc_probe(struct platform_device *pdev)
 	error = get_devtree_pdata(dev);
 	if (error)
 		return error;
-
+#ifdef CONFIG_ZTE_POWER_SUPPLY_COMMON
+	zte_poweroff_charging_handle();
+#endif
 	pr_info("%s end\n", __func__);
 	return 0;
 }

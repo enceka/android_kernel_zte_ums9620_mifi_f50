@@ -350,6 +350,7 @@ s32 gcore_idm_write_reg(u32 addr, u8 *buffer, s32 len)
 	buffer_send = kzalloc(len_send, GFP_KERNEL);
 	if (IS_ERR_OR_NULL(buffer_send)) {
 		GTP_ERROR("buffer send allocate fail!");
+		kfree(buffer_send);
 		return -ENOMEM;
 	}
 
@@ -542,6 +543,7 @@ s32 gcore_fw_write_reg(u32 addr, u8 *buffer, s32 len)
 	buffer_send = kzalloc(len_send, GFP_KERNEL);
 	if (IS_ERR_OR_NULL(buffer_send)) {
 		GTP_ERROR("buffer send allocate fail!");
+		kfree(buffer_send);
 		return -ENOMEM;
 	}
 
@@ -646,11 +648,14 @@ int gcore_fw_event_notify(enum fw_event_type event)
 	int ret = 0;
 	int i = 0;
 	gdev_fwu->notify_state = true;
-	gdev_fwu->fw_event = event;
 
-	if (!g_ret_update) {
-		GTP_DEBUG("fw update is running,wait 100ms");
-		msleep(100);
+	for (i=0; i<10; i++) {
+		if (!g_ret_update) {
+			GTP_DEBUG("fw update is running,wait 100ms,wait %d",i);
+			msleep(100);
+		} else {
+			break;
+		}
 	}
 
 	/* fix usb plugin cause mp test fail */
@@ -662,18 +667,28 @@ int gcore_fw_event_notify(enum fw_event_type event)
 			break;
 		}
 	}
+	gdev_fwu->fw_event = event;
 
 		switch (event) {
 		case FW_EDGE_0:
 			fw_event_cmd[10] = fw_event_cmd[10] & ~((0x00 | 0x01) << 0);
+			fw_event_cmd[10] = fw_event_cmd[10] & ~((0x00 | 0x01) << 7);
 			notify_byte = fw_event_cmd[10];
 			GTP_DEBUG("gcore fw event:edge 0");
 			break;
 
 		case FW_EDGE_90:
+			fw_event_cmd[10] = fw_event_cmd[10] & ~((0x00 | 0x01) << 7);
 			fw_event_cmd[10] = fw_event_cmd[10] | ((0x00 | 0x01) << 0);
 			notify_byte = fw_event_cmd[10];
 			GTP_DEBUG("gcore fw event:edge 90");
+			break;
+
+		case FW_EDGE_270:
+			fw_event_cmd[10] = fw_event_cmd[10] & ~((0x00 | 0x01) << 0);
+			fw_event_cmd[10] = fw_event_cmd[10] | ((0x00 | 0x01) << 7);
+			notify_byte = fw_event_cmd[10];
+			GTP_DEBUG("gcore fw event:edge 270");
 			break;
 
 		case FW_CHARGER_PLUG:
@@ -705,25 +720,25 @@ int gcore_fw_event_notify(enum fw_event_type event)
 		case FW_GESTURE_ENABLE:
 			fw_event_cmd[10] = fw_event_cmd[10] & ~((0x00 | 0x01) << 3);
 			notify_byte = fw_event_cmd[10];
-			GTP_DEBUG("gcore fw event:gesture disable");
+			GTP_DEBUG("gcore fw event:gesture enable");
 			break;
 
 		case FW_GESTURE_DISABLE:
 			fw_event_cmd[10] = fw_event_cmd[10] | ((0x00 | 0x01) << 3);
 			notify_byte = fw_event_cmd[10];
-			GTP_DEBUG("gcore fw event:gesture enable");
+			GTP_DEBUG("gcore fw event:gesture disable");
 			break;
 
 		case FW_GLOVE_ENABLE:
 			fw_event_cmd[10] = fw_event_cmd[10] & ~((0x00 | 0x01) << 4);
 			notify_byte = fw_event_cmd[10];
-			GTP_DEBUG("gcore fw event:glove mode disable");
+			GTP_DEBUG("gcore fw event:glove mode enable");
 			break;
 
 		case FW_GLOVE_DISABLE:
 			fw_event_cmd[10] = fw_event_cmd[10] | ((0x00 | 0x01) << 4);
 			notify_byte = fw_event_cmd[10];
-			GTP_DEBUG("gcore fw event:glove mode enable");
+			GTP_DEBUG("gcore fw event:glove mode disable");
 			break;
 
 		case FW_REPORT_RATE_120:
@@ -786,10 +801,17 @@ int gcore_fw_event_save(enum fw_event_type event)
 	switch (event) {
 	case FW_EDGE_0:
 		fw_event_cmd[10] = fw_event_cmd[10] & ~((0x00 | 0x01) << 0);
+		fw_event_cmd[10] = fw_event_cmd[10] & ~((0x00 | 0x01) << 7);
 		break;
 
 	case FW_EDGE_90:
+		fw_event_cmd[10] = fw_event_cmd[10] & ~((0x00 | 0x01) << 7);
 		fw_event_cmd[10] = fw_event_cmd[10] | ((0x00 | 0x01) << 0);
+		break;
+
+	case FW_EDGE_270:
+		fw_event_cmd[10] = fw_event_cmd[10] & ~((0x00 | 0x01) << 0);
+		fw_event_cmd[10] = fw_event_cmd[10] | ((0x00 | 0x01) << 7);
 		break;
 
 	case FW_CHARGER_PLUG:
@@ -852,6 +874,14 @@ int gcore_fw_event_save(enum fw_event_type event)
 int check_notify_event(u8 rev_data,enum fw_event_type check_event)
 {
 	GTP_DEBUG("sent to fw:%d, receive from fw:%d",notify_byte,rev_data);
+	if (tpd_cdev->bbat_test_enter) {
+        if (tpd_cdev->bbat_int_test == false) {
+            tpd_cdev->bbat_int_test = true;
+            complete(&tpd_cdev->bbat_test_completion);
+            GTP_INFO("%s tpd int BBAT test success", __func__);
+        }
+        return IRQ_HANDLED;
+    }
 	if(notify_byte == rev_data){
 		GTP_DEBUG("notify fw event success!");
 		return 1;
@@ -1015,23 +1045,19 @@ static ssize_t gcore_fw_edge_protection_show(struct device *dev,
 
 s32 gcore_fw_read_rawdata(u8 *buffer, s32 len)
 {
-	u8 cmd[11] = { 0x80, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08 };
+	/*u8 cmd[11] = { 0x80, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08 }; */
 	int ret = 0;
 
 	gdev_fwu->fw_event = FW_READ_RAWDATA;
 	gdev_fwu->firmware = buffer;
 	gdev_fwu->fw_xfer = len;
 
-	cmd[6] = (u8) (len >> 24);
-	cmd[7] = (u8) (len >> 16);
-	cmd[8] = (u8) (len >> 8);
-	cmd[9] = (u8) (len);
-
+	fw_event_cmd[8] = 0x01;
 	mutex_lock(&gdev_fwu->transfer_lock);
 
 	fw_update_fn.wait_int = true;
 
-	ret = gcore_bus_write(cmd, sizeof(cmd));
+	ret = gcore_bus_write(fw_event_cmd, sizeof(fw_event_cmd));
 	if (ret) {
 		GTP_ERROR("write fw event cmd fail!");
 		mutex_unlock(&gdev_fwu->transfer_lock);
@@ -1049,18 +1075,18 @@ s32 gcore_fw_read_rawdata(u8 *buffer, s32 len)
 int gcore_fw_read_rawdata_reply(u8 *buf, int len)
 {
 	int ret = 0;
-
+	u8 MIX_BUF[(RAWDATA_ROW * RAWDATA_COLUMN)*2+65] = {0};
 	if (buf == NULL) {
 		GTP_ERROR("receive buffer is null!");
 		return -EPERM;
 	}
 
-	ret = gcore_bus_read(buf, len);
+	ret = gcore_bus_read(MIX_BUF, len+65);
 	if (ret) {
 		GTP_ERROR("fw read rawdata error.");
 		return -EPERM;
 	}
-
+	memcpy(buf,MIX_BUF+65,len);
 	fw_update_fn.wait_int = false;
 	complete(&fw_update_complete);
 
@@ -1070,23 +1096,20 @@ int gcore_fw_read_rawdata_reply(u8 *buf, int len)
 
 s32 gcore_fw_read_diffdata(u8 *buffer, s32 len)
 {
-	u8 cmd[11] = { 0x80, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09 };
+	/*u8 cmd[11] = { 0x80, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09 }; */
 	int ret = 0;
 
 	gdev_fwu->fw_event = FW_READ_DIFFDATA;
 	gdev_fwu->firmware = buffer;
 	gdev_fwu->fw_xfer = len;
 
-	cmd[6] = (u8) (len >> 24);
-	cmd[7] = (u8) (len >> 16);
-	cmd[8] = (u8) (len >> 8);
-	cmd[9] = (u8) (len);
+	fw_event_cmd[8] = 0x02;
 
 	mutex_lock(&gdev_fwu->transfer_lock);
 
 	fw_update_fn.wait_int = true;
 
-	ret = gcore_bus_write(cmd, sizeof(cmd));
+	ret = gcore_bus_write(fw_event_cmd, sizeof(fw_event_cmd));
 	if (ret) {
 		GTP_ERROR("write fw event cmd fail!");
 		mutex_unlock(&gdev_fwu->transfer_lock);
@@ -1104,18 +1127,18 @@ s32 gcore_fw_read_diffdata(u8 *buffer, s32 len)
 int gcore_fw_read_diffdata_reply(u8 *buf, int len)
 {
 	int ret = 0;
-
+	u8 MIX_BUF[(RAWDATA_ROW * RAWDATA_COLUMN)*2+65] = {0};
 	if (buf == NULL) {
 		GTP_ERROR("receive buffer is null!");
 		return -EPERM;
 	}
 
-	ret = gcore_bus_read(buf, len);
+	ret = gcore_bus_read(MIX_BUF, len+65);
 	if (ret) {
 		GTP_ERROR("fw read diffdata error.");
 		return -EPERM;
 	}
-
+	memcpy(buf,MIX_BUF+65,len);
 	fw_update_fn.wait_int = false;
 	complete(&fw_update_complete);
 
@@ -1321,6 +1344,7 @@ int gcore_dump_fw_to_file(void)
 	fw_buf = kzalloc(xfer_len, GFP_KERNEL);
 	if (IS_ERR_OR_NULL(fw_buf)) {
 		GTP_ERROR("fw buf mem allocate fail");
+		kfree(fw_buf);
 		return -EPERM;
 	}
 
@@ -1329,6 +1353,7 @@ int gcore_dump_fw_to_file(void)
 	file = filp_open(DUMP_FW_FILE_NAME, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 	if (IS_ERR(file)) {
 		GTP_ERROR("Open file %s failed", DUMP_FW_FILE_NAME);
+		kfree(fw_buf);
 		return -EPERM;
 	}
 
@@ -1341,8 +1366,8 @@ int gcore_dump_fw_to_file(void)
 	set_fs(old_fs);
 	filp_close(file, NULL);
 
-	kfree(fw_buf);
 #endif
+	kfree(fw_buf);
 	return 0;
 }
 
@@ -1715,7 +1740,7 @@ int gcore_fw_mode_set_proc2(u8 mode)
 {
 	u8 cmd[] = { 0x40, 0xA0, 0x00, 0x00, 0x73, 0x71, 0x00, 0x00, mode };
 	int ret = 0;
-
+	fw_event_cmd[8] = 0x00;
 	ret = gcore_bus_write(cmd, sizeof(cmd));
 	if (ret) {
 		GTP_ERROR("fw mode set fail!");
@@ -2009,6 +2034,7 @@ int gcore_auto_update_hostdownload(u8 *fw_buf)
 	u8 result = 0;
 	u8 *fw_data = fw_buf;
 	u8 retry = 0;
+	int tp_time = 0;
 /* int count = 0; */
 
 	if (!fw_buf) {
@@ -2025,6 +2051,7 @@ int gcore_auto_update_hostdownload(u8 *fw_buf)
 
 	switch (result) {
 	case 0xB1:
+		tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
 		GTP_DEBUG("Start to update pram fw,times(%d)", retry);
 		retry++;
 
@@ -2074,6 +2101,8 @@ int gcore_auto_update_hostdownload(u8 *fw_buf)
 		break;
 
 	case 0xB3:
+	 	tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+		TPD_DMESG("tp_time fts fw upgrade time:%d.", tp_time);
 		GTP_DEBUG("update pram fw success...");
 		fw_update_fn.wait_int = false;
 		complete(&fw_update_complete);
@@ -2142,6 +2171,7 @@ int gcore_burn_fw_idm(u8 *fw_data)
 	fw_data_buf = kzalloc(size_one_time + 8, GFP_KERNEL);
 	if (IS_ERR_OR_NULL(fw_data_buf)) {
 		GTP_ERROR("flash_op_buf mem allocate fail!");
+		kfree(fw_data_buf);
 		return -ENOMEM;
 	}
 
@@ -3321,24 +3351,26 @@ void gcore_request_firmware_update_work(struct work_struct *work)
 			GTP_DEBUG(" try requeset %s\n", DEFAULT_UPDATE_FIRMWARE_NAME);
 			if (request_firmware(&fw, DEFAULT_UPDATE_FIRMWARE_NAME, &gdev_fwu->bus_device->dev)) {
 				GTP_ERROR("request default firmware fail,firmware: %s", DEFAULT_UPDATE_FIRMWARE_NAME);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 				tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 				if (tpd_cdev->get_tpinfo)
 					tpd_cdev->get_tpinfo(tpd_cdev);
 #endif
 				return;
                         }
 #else
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			if (tpd_cdev->get_tpinfo)
 				tpd_cdev->get_tpinfo(tpd_cdev);
 #endif
 			return;
 #endif
                 }
-		if (fw->size > FW_SIZE)
+		if (fw->size > FW_SIZE) {
+			release_firmware(fw);
 			return;
+		}
 		memcpy(fw_buf, fw->data, fw->size);
 		release_firmware(fw);
         }
@@ -3392,6 +3424,7 @@ void gcore_request_firmware_update_work(struct work_struct *work)
 	retry_count = 0;
 	time_after_fw_upgrade = jiffies;
 	fn_data.gdev->tp_fw_update = false;
+	tpd_cdev->fw_ready = true;
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	if (tpd_cdev->get_tpinfo)
 		tpd_cdev->get_tpinfo(tpd_cdev);
@@ -3407,8 +3440,8 @@ retry:
 	                       msecs_to_jiffies(100));
 	}
 	else {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		if (tpd_cdev->get_tpinfo)
 				tpd_cdev->get_tpinfo(tpd_cdev);
 #endif

@@ -80,7 +80,6 @@
 #define FP_INPUT_NAME "fp-keys"
 
 #define FP_DEV_VERSION "v0.3.7"
-#define SILEAD_DRIVER_VERSION   "v2023-05-29"
 #define PERM 0666
 #define RETURN_NEG  (-1)
 
@@ -158,6 +157,8 @@ struct class *silfp_class;
 
 static struct workqueue_struct *silfp_wq;
 struct silfp_data *g_fp_dev = NULL;
+
+extern int zte_fp_pinctrl_select_spi(bool is_spi_mode);
 
 /*fp nav*/
 static void sil_report_uevent(struct silfp_data *fp_dev, char *str)
@@ -1034,11 +1035,13 @@ static long silfp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			retval = -EFAULT;
 		}
 		g_fp_dev = fp_dev;
+		zte_fp_pinctrl_select_spi(true);
 		break;
 
 	case SIFP_IOC_DEINIT:
 		LOG_MSG_DEBUG(INFO_LOG, "[%s] SIFP_IOC_DEINIT\n", __func__);
 		g_fp_dev = NULL;
+		zte_fp_pinctrl_select_spi(false);
 		silfp_resource_deinit(fp_dev);
 		break;
 
@@ -1161,8 +1164,8 @@ static long silfp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				retval = -EFAULT;
 				break;
 			}
-			LOG_MSG_DEBUG(INFO_LOG, "SIFP_IOC_DBG_LEVEL %d-->%d\n", debug_level, level);
-			retval = __put_user((u8)(debug_level), (__u8 __user *)arg);
+			//LOG_MSG_DEBUG(INFO_LOG, "SIFP_IOC_DBG_LEVEL %d-->%d\n", debug_level, level);
+			//retval = __put_user((u8)(debug_level), (__u8 __user *)arg);
 			//debug_level = (fp_debug_level_t)level;
 		}
 		break;
@@ -1542,7 +1545,7 @@ int silfp_dev_init(void)
 {
 	int status = 0;
 
-	LOG_MSG_DEBUG(INFO_LOG, "silead_fp_driver, version: %s!\n", SILEAD_DRIVER_VERSION);
+	LOG_MSG_DEBUG(INFO_LOG, "%s enter, driver_time:2023-09-25\n", __func__);
 	/* Claim our 256 reserved device numbers.  Then register a class
 	* that will key udev/mdev to add/remove /dev nodes.  Last, register
 	* the driver which manages those device numbers.

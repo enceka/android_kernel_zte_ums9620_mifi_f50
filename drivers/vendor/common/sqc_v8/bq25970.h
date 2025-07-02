@@ -66,8 +66,8 @@ struct bq25970_device {
 #define BQ2597X_ALM_DISABLE                (0)
 #define BQ2597X_ALM_ENABLE                 (1)
 
-#define BQ2597X_AC_OVP_THRESHOLD_INIT      (12000)  /* 12v */
-#define BQ2597X_VBUS_OVP_THRESHOLD_INIT    (12000)  /* 12v */
+#define BQ2597X_AC_OVP_THRESHOLD_INIT      (11500)  /* 11.5v */
+#define BQ2597X_VBUS_OVP_THRESHOLD_INIT    (10500)  /* 10.5v */
 #define BQ2597X_IBUS_OCP_THRESHOLD_INIT    (4750)   /* 4.75a */
 #define BQ2597X_VBAT_OVP_THRESHOLD_INIT    (5000)   /* 5v */
 #define BQ2597X_IBAT_OCP_THRESHOLD_INIT    (10000)  /* 10a */

@@ -70,3 +70,4 @@ source "drivers/vendor/common/fingerprint/Kconfig"
 source "drivers/vendor/common/zte_lcdbl/Kconfig"
 
 source "drivers/vendor/common/stats_info/Kconfig"
+source "drivers/vendor/common/zte_pv_pintest/Kconfig"

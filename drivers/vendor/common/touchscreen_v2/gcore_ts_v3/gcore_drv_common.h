@@ -73,19 +73,28 @@
 /*
  * Log define
  */
-#define GTP_INFO(fmt, arg...)          pr_info("<GTP-INFO>[%s:%d] "fmt"\n", __func__, __LINE__, ##arg)
-
-#define GTP_ERROR(fmt, arg...)          pr_err("<GTP-ERR>[%s:%d] "fmt"\n", \
-													__func__, __LINE__, ##arg)
+#define GTP_INFO(fmt, arg...)  \
+	do {						\
+ 		pr_info("[ZTE_LDD_TP][TPD_GTP-INFO][%s:%d] "fmt"\n", __func__, __LINE__, ##arg); \
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_GTP-INFO][%s:%d] "fmt"\n", __func__, __LINE__, ##arg); \
+	} while (0)
+#define GTP_ERROR(fmt, arg...)  \
+	do { \
+		pr_err("[ZTE_LDD_TP][TPD_GTP-ERR][%s:%d] "fmt"\n", __func__, __LINE__, ##arg); \
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_GTP-ERR][%s:%d] "fmt"\n", __func__, __LINE__, ##arg); \
+	} while (0)
 #define GTP_DEBUG(fmt, arg...)				\
 	do {									\
-		if (1)						\
-			pr_err("<GTP-DBG>[%s:%d]"fmt"\n", __func__, __LINE__, ##arg);\
+		if (1) { \
+			pr_err("[ZTE_LDD_TP][TPD_GTP-DBG][%s:%d]"fmt"\n", __func__, __LINE__, ##arg);\
+			tpd_save_last_log("[ZTE_LDD_TP][GTP-DBG>[%s:%d]"fmt"\n", __func__, __LINE__, ##arg);\
+		} \
 	} while (0)
+
 #define GTP_REPORT(fmt, arg...)				\
 	do {									\
 		if (CONFIG_ENABLE_REPORT_LOG)						\
-			pr_err("<GTP-REP>[%s:%d]"fmt"\n", __func__, __LINE__, ##arg);\
+			pr_err("<TPD_GTP-REP>[%s:%d]"fmt"\n", __func__, __LINE__, ##arg);\
 	} while (0)
 
 #define GTP_DRIVER_NAME               "gcore"
@@ -195,6 +204,7 @@ enum fw_event_type {
 	FW_READ_SHORT,
 	FW_EDGE_0,
 	FW_EDGE_90,
+	FW_EDGE_270,
 	FW_CHARGER_PLUG,
 	FW_CHARGER_UNPLUG,
 	FW_HEADSET_PLUG,
@@ -265,6 +275,9 @@ struct gcore_dev {
 	/* for driver request event and fw reply with interrupt */
 	enum fw_event_type fw_event;
 	u8 *firmware;
+#ifdef GTP_GET_NOISE
+	u8 *noise_buffer;
+#endif
 	int fw_xfer;
 	struct notifier_block charger_notifier;
 	struct workqueue_struct *fwu_workqueue;
@@ -299,7 +312,10 @@ struct gcore_dev {
 #elif defined(CONFIG_FB)
 	struct notifier_block fb_notifier;
 #endif
-
+#ifdef CONFIG_PM
+	struct completion pm_completion;
+	bool pm_suspend;
+#endif
 	u8 fw_ver_in_bin[4];
 	u8 fw_ver_in_reg[4];
 

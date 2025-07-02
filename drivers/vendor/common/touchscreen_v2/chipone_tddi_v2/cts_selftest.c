@@ -125,6 +125,26 @@ int cts_get_short_test_var(void)
 	return 0;
 }
 
+int cts_get_noise_test_var(void)
+{
+	int i = 0;
+	int ret = 0;
+
+	i = cts_find_ini_word(selftestdata, KEY_FIELD_PARMETER, KEY_NOISE_TEST_THRES);
+	if (i < 0) {
+		cts_err("cannot find noise test var, use default");
+		selftestdata->noise_test_var.thres = DEFAULT_NOISE_TEST_THRES;
+	} else {
+		ret = sscanf(selftestdata->keyword[i].val, "%d", (int *)&selftestdata->noise_test_var.thres);
+		if (ret < 0)
+			cts_err("%s get noise_test_var.thres error.\n", __func__);
+	}
+
+	cts_info("noise test var, threshold:%d", selftestdata->noise_test_var.thres);
+
+	return 0;
+}
+
 int cts_parse_ini(void)
 {
 	int ret = 0;
@@ -155,6 +175,7 @@ int cts_parse_ini(void)
 	cts_get_rawdata_test_var();
 	cts_get_open_test_var();
 	cts_get_short_test_var();
+	cts_get_noise_test_var();
 
 	kfree(selftestdata->ini_file_buf);
 	selftestdata->ini_file_buf = NULL;
@@ -198,6 +219,14 @@ int cts_init_selftest(struct cts_device *cts_dev)
 		kfree(selftestdata->rawdata);
 		kfree(selftestdata->opendata);
 		cts_err("Malloc shortdata failed");
+		goto cts_init_free_test_result_info;
+	}
+	selftestdata->noisedata = kmalloc(RAWDATA_BUFFER_SIZE(cts_dev), GFP_KERNEL);
+	if (selftestdata->noisedata== NULL) {
+		kfree(selftestdata->rawdata);
+		kfree(selftestdata->opendata);
+		kfree(selftestdata->shortdata);
+		cts_err("Malloc noisedata failed");
 		goto cts_init_free_test_result_info;
 	}
 	selftestdata->cts_dev = cts_dev;
@@ -304,6 +333,20 @@ int cts_init_test_item(void)
 		cts_attach_testitem(SHORT_CIRCUITE_TEST_CODE, NULL);
 	}
 
+	val = 0;
+	i = cts_find_ini_word(selftestdata, KEY_FIELD_ITEM, KEY_ITEM_NOISE_TEST);
+	if (i >= 0) {
+		ret = sscanf(selftestdata->keyword[i].val, "%d", &val);
+		if (ret < 0)
+			cts_err("%s get val error.\n", __func__);
+	}
+	if (val == 0) {
+		cts_info("no need noise test");
+	} else {
+		cts_info("need noise test");
+		cts_attach_testitem(NOISE_TEST_CODE, NULL);
+	}
+
 	return 0;
 }
 
@@ -402,6 +445,37 @@ int cts_selftest_short(void)
 	return ret;
 }
 
+int cts_selftest_noise(void)
+{
+	int ret;
+	struct cts_noise_test_priv_param priv_param = {
+		.frames = 50,
+		//.work_mode = 0,
+	};
+	struct cts_test_param test_param = {
+		.test_item = CTS_TEST_NOISE,
+		.flags = CTS_TEST_FLAG_VALIDATE_DATA |
+				 CTS_TEST_FLAG_VALIDATE_MAX |
+				 CTS_TEST_FLAG_STOP_TEST_IF_VALIDATE_FAILED |
+				 CTS_TEST_FLAG_DUMP_TEST_DATA_TO_CONSOLE,
+		.test_data_filepath =
+			"/sdcard/chipone-tddi/test/noise-test-data.txt",
+		.num_invalid_node = 0,
+		.invalid_nodes = NULL,
+		.priv_param = &priv_param,
+		.priv_param_size = sizeof(priv_param),
+	};
+	test_param.max = &(selftestdata->noise_test_var.thres);;
+
+	cts_info("test_param.max=%d, selftestdata->noise_test_var.thres=%d", *(test_param.max),
+		selftestdata->noise_test_var.thres);
+
+	cts_info("cts_selftest_noise");
+	ret = cts_test_noise(selftestdata->cts_dev, &test_param);
+
+	return ret;
+}
+
 void cts_test_data_print(u16 *test_data)
 {
 	int i = 0, j = 0;
@@ -469,6 +543,15 @@ int cts_produce_test_info(void)
 		}
 	}
 
+	if (selftestdata->test_muster & (1 << NOISE_TEST_CODE)) {
+		if (selftestdata->test_result & (1 << NOISE_TEST_CODE)) {
+			cts_print_result_info("noise Test:FAILED\n");
+			cts_print_test_info("noise Test,FAILED,\n");
+		} else {
+			cts_print_result_info("noise Test:PASSED\n");
+			cts_print_test_info("noise Test,PASSED,\n");
+		}
+	}
 	cts_print_test_info("\n[TEST PARAMETER],\n");
 
 	cts_print_test_info("Firmware Test:, 0x%04x,\n", selftestdata->version_test_var.version);
@@ -476,24 +559,31 @@ int cts_produce_test_info(void)
 			    selftestdata->rawdata_test_var.max_thres);
 	cts_print_test_info("Open circuite Test:,%d,\n", selftestdata->open_test_var.thres);
 	cts_print_test_info("Short circuite Test:,%d,\n", selftestdata->short_test_var.thres);
+	cts_print_test_info("noise Test:,%d,\n", selftestdata->noise_test_var.thres);
 
 	cts_print_test_info("\n\n\n");
 	if (selftestdata->test_muster & (1 << RAWDATA_TEST_CODE)) {
 		cts_print_test_info("==============================================\
 	[RAWDATA]	==============================================\n");
-		cts_test_data_print(selftestdata->rawdata);	
+		cts_test_data_print(selftestdata->rawdata);
 	}
 	if (selftestdata->test_muster & (1 << OPEN_CIRCUITE_TEST_CODE)) {
 		cts_print_test_info("\n\n");
 		cts_print_test_info("==============================================\
 	[OPENDATA]	==============================================\n");
-		cts_test_data_print(selftestdata->opendata);	
+		cts_test_data_print(selftestdata->opendata);
 	}
 	if (selftestdata->test_muster & (1 << SHORT_CIRCUITE_TEST_CODE)) {
 		cts_print_test_info("\n\n");
 		cts_print_test_info("==============================================\
 	[SHORTDATA]	==============================================\n");
-		cts_test_data_print(selftestdata->shortdata);	
+		cts_test_data_print(selftestdata->shortdata);
+	}
+	if (selftestdata->test_muster & (1 << NOISE_TEST_CODE)) {
+		cts_print_test_info("\n\n");
+		cts_print_test_info("==============================================\
+	[NOISEDTA]	==============================================\n");
+		cts_test_data_print(selftestdata->noisedata);
 	}
 	return 0;
 }
@@ -551,6 +641,11 @@ int cts_start_selftest(struct cts_device *cts_dev)
 			if (ret) {
 				cts_err("short circuite test failed");
 			}
+		} else if (testitem.code == NOISE_TEST_CODE) {
+			ret = cts_selftest_noise();
+			if (ret) {
+				cts_err("short circuite test failed");
+			}
 		}
 		selftestdata->test_muster |= 1 << testitem.code;
 		if (ret) {
@@ -575,6 +670,10 @@ void cts_deinit_selftest(struct cts_device *cts_dev)
 	if (selftestdata->shortdata != NULL) {
 		kfree(selftestdata->shortdata);
 		selftestdata->shortdata = NULL;
+	}
+	if (selftestdata->noisedata != NULL) {
+		kfree(selftestdata->noisedata);
+		selftestdata->noisedata = NULL;
 	}
 	if (selftestdata->all_test_info != NULL) {
 		kfree(selftestdata->all_test_info);

@@ -345,31 +345,36 @@ static int fts_read_bootid(struct fts_ts_data *ts_data, u8 *id)
 static int fts_get_ic_information(struct fts_ts_data *ts_data)
 {
 	int ret = 0;
-	int cnt = 0;
+	int cnt = 0, i = 0;
 	u8 chip_id[2] = { 0 };
 
 	ts_data->ic_info.is_incell = FTS_CHIP_IDC;
 	ts_data->ic_info.hid_supported = FTS_HID_SUPPORTTED;
 
-	for (cnt = 0; cnt < 3; cnt++) {
-		fts_reset_proc(0);
-		mdelay(FTS_CMD_START_DELAY + (cnt * 8));
-
-		ret = fts_read_bootid(ts_data, &chip_id[0]);
-		if (ret < 0) {
-			FTS_DEBUG("read boot id fail,retry:%d", cnt);
-			continue;
+	do {
+		for (i = 0; i < 10; i++) {
+			fts_reset_proc(0);
+			mdelay(FTS_CMD_START_DELAY + (i * 2));
+			ret = fts_read_bootid(ts_data, &chip_id[0]);
+			if (ret < 0) {
+				FTS_DEBUG("read boot id fail,retry:%d", i);
+				continue;
+			}
+			ret = fts_get_chip_types(ts_data, chip_id[0], chip_id[1], INVALID);
+			if (ret < 0) {
+				FTS_DEBUG("can't get ic informaton,retry:%d", i);
+				continue;
+			}
+			break;
 		}
-
-		ret = fts_get_chip_types(ts_data, chip_id[0], chip_id[1], INVALID);
-		if (ret < 0) {
-			FTS_DEBUG("can't get ic informaton,retry:%d", cnt);
-			continue;
+		if (i >= 10) {
+			FTS_ERROR("get chipid fail,retry: %d", cnt);
+		} else {
+			break;
 		}
-
-		break;
-	}
-
+		cnt++;
+		msleep(30);
+	} while (cnt < 3);
 	if (cnt >= 3) {
 		FTS_ERROR("get ic informaton fail");
 		return -EIO;
@@ -817,9 +822,7 @@ static int fts_read_parse_touchdata(struct fts_ts_data *data)
 			fts_release_all_finger();
 			fts_tp_state_recovery(data);
 			data->point_num = 0;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
+			tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
 			return -EIO;
 		}
 	}
@@ -908,6 +911,15 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
 		}
 	}
 #endif
+
+    if (tpd_cdev->bbat_test_enter) {
+        if (tpd_cdev->bbat_int_test == false) {
+            tpd_cdev->bbat_int_test = true;
+            complete(&tpd_cdev->bbat_test_completion);
+            FTS_INFO("%s tpd int BBAT test success", __func__);
+        }
+        return IRQ_HANDLED;
+    }
 
 	fts_irq_read_report();
 	return IRQ_HANDLED;
@@ -2019,7 +2031,6 @@ int fts_ts_resume(struct device *dev)
 #endif
 		fts_reset_proc(200);
 	}
-
 	fts_wait_tp_to_valid();
 	fts_ex_mode_recovery(ts_data);
 
@@ -2102,10 +2113,7 @@ static int fts_ts_probe(struct spi_device *spi)
 	if (ret) {
 		FTS_ERROR("Touch Screen(SPI BUS) driver probe fail");
 		kfree_safe(ts_data);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_FOCAL)
 		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_FOCAL;
-#endif
 		return ret;
 	}
 	tpd_register_fw_class(ts_data);

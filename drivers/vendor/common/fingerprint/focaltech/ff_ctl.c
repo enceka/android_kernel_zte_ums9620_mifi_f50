@@ -286,7 +286,7 @@ static irqreturn_t ff_ctl_device_irq(int irq, void *dev_id)
         }
     }
 #ifdef ANDROID_WAKELOCK
-    __pm_wakeup_event(wake, msecs_to_jiffies(1000));
+    __pm_wakeup_event(wake, msecs_to_jiffies(3000));
 #endif
     enable_irq(irq);
     return IRQ_HANDLED;

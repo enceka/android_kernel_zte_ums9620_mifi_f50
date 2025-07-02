@@ -1711,6 +1711,7 @@ static bool fts_fwupg_need_upgrade(struct fts_upgrade *upg)
 int fts_fwupg_upgrade(struct fts_upgrade *upg)
 {
     int ret = 0;
+    int tp_time = 0;
     bool upgrade_flag = false;
     int upgrade_count = 0;
     u8 ver = 0;
@@ -1720,7 +1721,7 @@ int fts_fwupg_upgrade(struct fts_upgrade *upg)
         FTS_ERROR("upg/upg->func is null");
         return -EINVAL;
     }
-
+    tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
     upgrade_flag = fts_fwupg_need_upgrade(upg);
     FTS_INFO("fw upgrade flag:%d", upgrade_flag);
     do {
@@ -1774,7 +1775,8 @@ int fts_fwupg_upgrade(struct fts_upgrade *upg)
             }
         }
     } while (upgrade_count < 2);
-
+    tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+    TPD_DMESG("tp_time fts fw upgrade time:%d.", tp_time);
     return ret;
 }
 
@@ -1793,9 +1795,7 @@ static void fts_fwupg_auto_upgrade(struct fts_upgrade *upg)
 
     ret = fts_fwupg_upgrade(upg);
     if (ret < 0) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
     } else {
         FTS_INFO("**********tp fw(app/param) no upgrade/upgrade success**********");
     }
@@ -2076,9 +2076,7 @@ static void fts_fwupg_work(struct work_struct *work)
     /* get fw */
     ret = fts_fwupg_get_fw_file(upg);
     if (ret < 0) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
         FTS_ERROR("get file fail, can't upgrade");
     } else {
         /* ic init if have */

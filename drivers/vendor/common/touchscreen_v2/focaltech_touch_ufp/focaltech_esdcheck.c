@@ -128,9 +128,7 @@ static int fts_esdcheck_tp_reset(struct fts_ts_data *ts_data)
 	fts_reset_proc(ts_data, 200);
 	fts_release_all_finger();
 	fts_tp_state_recovery(ts_data);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
 	FTS_FUNC_EXIT();
 	return 0;
 }

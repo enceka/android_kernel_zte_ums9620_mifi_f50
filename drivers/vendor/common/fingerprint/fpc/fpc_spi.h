@@ -42,6 +42,8 @@ enum FPC_MODE{
 	FPC_DEBUG_MODE = 0x56
 };
 
+#define ZLOG_MOD_NAME	"[ZTE_LDD_FP]"
+#define ZLOG_VENDOR_NAME	"[FPC]"
 typedef enum {
 	ERR_LOG = 0,
 	WARN_LOG,
@@ -50,11 +52,11 @@ typedef enum {
 	ALL_LOG,
 } fpc_debug_level_t;
 
-static fpc_debug_level_t g_debug_level = INFO_LOG;
+extern int zte_fp_log_level;
 
 #define fpc_debug(level, fmt, args...) do { \
-			if (g_debug_level >= level) {\
-				pr_warn("[fpc_info] " fmt, ##args); \
+			if (zte_fp_log_level >= level) {\
+				pr_err("%s%s"fmt, ZLOG_MOD_NAME, ZLOG_VENDOR_NAME, ##args); \
 			} \
 		} while (0)
 

@@ -51,11 +51,18 @@ typedef enum {
     ALL_LOG,
 } fp_debug_level_t;
 
-static fp_debug_level_t cfp_debug_level = INFO_LOG;
+extern int zte_fp_log_level;
+
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+#include "zlog_common_base.h"
+#endif
+
+#define ZLOG_MOD_NAME	"[ZTE_LDD_FP]"
+#define ZLOG_VENDOR_NAME	"[CDFINGER]"
 
 #define cfp_debug(level, fmt, args...) do { \
-			if (cfp_debug_level >= level) {\
-				pr_warn("[cdfinger_info] " fmt, ##args); \
+			if (zte_fp_log_level >= level) {\
+				pr_err("%s%s"fmt, ZLOG_MOD_NAME, ZLOG_VENDOR_NAME, ##args); \
 			} \
 		} while (0)
 

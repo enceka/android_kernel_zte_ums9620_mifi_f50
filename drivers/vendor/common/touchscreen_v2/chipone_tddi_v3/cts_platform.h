@@ -41,7 +41,8 @@
 #include <linux/firmware.h>
 #include <linux/kthread.h>
 #include <linux/sched.h>
-#include <linux/sched/types.h>
+/* #include <linux/sched/types.h> */
+#include <uapi/linux/sched/types.h>
 #include <linux/wait.h>
 #include <linux/syscalls.h>
 
@@ -82,19 +83,26 @@ extern int cts_start_driver_log_redirect(const char *filepath, bool append_to_fi
 extern void cts_stop_driver_log_redirect(void);
 extern int cts_get_driver_log_redirect_size(void);
 /* extern void cts_log(int level, const char *fmt, ...); */
-
 #define cts_err(fmt, args...)   \
-	pr_err("CTS-ERR :%s:"fmt"\n",  __func__, ##args)
+	do { \
+		pr_err("[ZTE_LDD_TP][TPD_CTS][ERR] :%s:"fmt"\n",  __func__, ##args);\
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_CTS][ERR] :%s:"fmt"\n",  __func__, ##args);\
+	} while (0)
 #define cts_warn(fmt, args...)  \
-	pr_warn("CTS-WARN:%s:"fmt"\n",  __func__, ##args)
+	do { \
+		pr_warn("[ZTE_LDD_TP][TPD_CTS][WARN]:%s:"fmt"\n",  __func__, ##args);\
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_CTS][WARN]:%s:"fmt"\n",  __func__, ##args);\
+	} while (0)	
 #define cts_info(fmt, args...)  \
-	pr_info("CTS-INFO:%s:"fmt"\n",  __func__, ##args)
+	do { \
+		pr_info("[ZTE_LDD_TP][TPD_CTS][INFO]:%s:"fmt"\n",  __func__, ##args);\
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_CTS][INFO]:%s:"fmt"\n",  __func__, ##args);\
+	} while (0)
 #define cts_dbg(fmt, args...)  \
 	do {									\
-		if (cts_show_debug_log)						\
-			pr_info("CTS-DBG:%s:"fmt"\n",  __func__, ##args);\
+		if (cts_show_debug_log || tpd_cdev->debug_log_enable)						\
+			pr_info("[ZTE_LDD_TP][TPD_CTS][DBG]:%s:"fmt"\n",  __func__, ##args);\
 	} while (0)
-
 struct cts_device;
 struct cts_device_touch_msg;
 struct cts_device_gesture_info;

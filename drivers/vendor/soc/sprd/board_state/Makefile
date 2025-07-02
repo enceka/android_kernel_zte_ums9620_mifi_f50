@@ -1,4 +1,4 @@
 #
 # Makefile for zte extend kernel cmdline info driver.
 #
-obj-y 	+= board_state.o
+obj-$(CONFIG_ZTE_BOARD_STATE) 	+= board_state.o

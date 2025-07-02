@@ -149,6 +149,10 @@ static int wcn_send_atcmd(void *cmd, size_t cmd_len,
 		WCN_INFO("sprdwcn_bus_push_list error=%d\n", ret);
 		if ((ret == -E_INVALIDPARA) && g_match_config && g_match_config->unisoc_wcn_sipc)
 			sprdwcn_bus_list_free(0, head, tail, num);
+		else if ((ret == -ENODEV) && g_match_config && g_match_config->unisoc_wcn_sdio)
+			sprdwcn_bus_list_free(0, head, tail, num);
+		wcn_send_atcmd_unlock();
+		return -ENOMEM;
 	}
 	timeleft = wait_for_completion_timeout(&sysfs_info.cmd_completion,
 					       3 * HZ);
@@ -179,6 +183,30 @@ static int wcn_send_atcmd(void *cmd, size_t cmd_len,
 
 	return 0;
 }
+
+int wcn_set_armlog(bool enable)
+{
+	int ret = 0;
+	char buf[64];
+
+	memset(buf, 0, sizeof(buf));
+	if (!marlin_get_module_status())
+		return 0;
+
+	if (enable == true) {
+		/* open CP2 armlog */
+		scnprintf(buf, (size_t)sizeof(buf), "%s", "at+armlog=1\r\n");
+	} else if (enable == false) {
+		/* close CP2 armlog */
+		scnprintf(buf, (size_t)sizeof(buf), "%s", "at+armlog=0\r\n");
+	}
+	ret = wcn_send_atcmd(buf, strlen(buf), NULL, NULL);
+	if (ret < 0)
+		WCN_ERR("%s fail, ret:%d\n", __func__, ret);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(wcn_set_armlog);
 
 char *__wcn_get_sw_ver(void)
 {
@@ -593,7 +621,6 @@ static ssize_t wcn_sysfs_store_reset_dump(struct device *dev,
 	} else if (strncmp(buf, "reset", 5) == 0) {
 		atomic_set(&sysfs_info.is_reset, WCN_ASSERT_ONLY_RESET);
 	} else if (strncmp(buf, "manual_dump", 11) == 0) {
-		sprdwcn_bus_set_carddump_status(true);
 		wcn_assert_interface(WCN_SOURCE_BTWF, "dumpmem");
 	} else
 		return -EINVAL;

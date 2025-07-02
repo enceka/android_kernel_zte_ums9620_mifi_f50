@@ -13,8 +13,19 @@ obj-$(CONFIG_VENDOR_SQC_MODULE) += sqc_charger.o
 
 
 obj-$(CONFIG_VENDOR_SQC_NETLINK) += sqc_netlink.o
+
+########## BUCK ############
 obj-$(CONFIG_VENDOR_SQC_BQ2560X) += sqc_bq2560x.o
+obj-$(CONFIG_VENDOR_SQC_SC8989X) += sqc_sc8989x.o
+obj-$(CONFIG_VENDOR_SQC_SGM41510) += sqc_sgm41510.o
+obj-$(CONFIG_VENDOR_SQC_HL7009) += sqc_hl7009.o
+obj-$(CONFIG_VENDOR_SQC_SD76930) += sqc_sd76930.o
+
+########## CP ############
 obj-$(CONFIG_VENDOR_SQC_BQ2597X) += bq25970.o
+obj-$(CONFIG_VENDOR_SQC_NU2115)  += nu2115.o
+obj-$(CONFIG_VENDOR_SQC_SC8541)	 += sc8541_charger.o
+obj-$(CONFIG_VENDOR_SQC_UPM6720) += upm6720_charger.o
 
 ifeq ($(CONFIG_VENDOR_CHARGER_POLICY_SERVICE),m)
 	ccflags-y += -DCONFIG_VENDOR_CHARGER_POLICY_SERVICE_COMMON

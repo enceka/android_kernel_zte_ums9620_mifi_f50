@@ -23,6 +23,11 @@
 /* zte_add */
 extern char cts_fw_name[];
 extern int get_cts_module_info_from_lcd(void);
+#ifdef CONFIG_CTS_TP_PROXIMITY
+extern bool cts_is_proximity_enable(struct cts_device *cts_dev);
+extern int cts_tcs_set_proximity_mode(struct cts_device *cts_dev, u8 enable);
+#endif
+
 #ifndef CONFIG_CTS_ICTYPE_ICNL9951
 enum cts_firmware_section_offset {
     CTS_FIRMWARE_SECTION_OFFSET = 0x00000000,
@@ -604,6 +609,7 @@ static int cts_wrap_request_firmware(struct cts_firmware *firmware,
     ret = request_firmware(&firmware->fw, name, device);
     if (ret) {
         cts_err("Could not load firmware from %s: %d", name, ret);
+        tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
         return ret;
     }
 
@@ -951,7 +957,8 @@ int cts_update_firmware(struct cts_device *cts_dev,
 #ifdef CFG_CTS_HEADSET_DETECT
 	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
 #endif
-	bool enabled = cts_is_device_enabled(cts_dev);
+    bool enabled = cts_is_device_enabled(cts_dev);
+    int tp_time = 0;
 
 #ifdef CONFIG_CTS_I2C_HOST
     to_flash = true;
@@ -959,6 +966,7 @@ int cts_update_firmware(struct cts_device *cts_dev,
     to_flash = false;
 #endif
 
+    tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
     cts_info("Update firmware to %s ver: %04x size: %zu",
         to_flash ? "flash" : "sram",
         FIRMWARE_VERSION(firmware), firmware->size);
@@ -1078,7 +1086,8 @@ post_flash_operation:
 
 out:
     cts_dev->rtdata.updating = false;
-
+    tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+    TPD_DMESG("tp_time cts fw upgrade time:%d.", tp_time);
     if (ret == 0) {
         if (firmware_info.firmware_sect_size <=
             cts_dev->hwdata->sfctrl->xchg_sram_base) {
@@ -1117,6 +1126,15 @@ out:
 #ifdef CFG_CTS_FW_LOG_REDIRECT
 	if (cts_is_fw_log_redirect(cts_dev)) {
 		cts_enable_fw_log_redirect(cts_dev);
+	}
+#endif
+
+#ifdef CONFIG_CTS_TP_PROXIMITY
+	if (cts_is_proximity_enable(cts_dev)) {
+		ret = cts_tcs_set_proximity_mode(&cts_data->cts_dev, 1);
+		if (ret) {
+			cts_err("ESD protection set proximity mode failed");
+		}
 	}
 #endif
 

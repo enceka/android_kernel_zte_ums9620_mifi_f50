@@ -24,3 +24,46 @@ config VENDOR_SQC_BQ2597X
 	tristate "sqc power bq2597x"
 	help
 	  Say Y here, if supported zte sqc charger bq2597x
+
+config VENDOR_SQC_SC8989X
+	tristate "sqc power sc8989x"
+	default n
+	help
+	  Say Y here, if supported zte sqc charger sc8989x
+
+config VENDOR_SQC_SGM41510
+	tristate "sqc power sgm41510"
+	default n
+	help
+	  Say Y here, if supported zte sqc charger sgm41510
+
+config VENDOR_SQC_HL7009
+	tristate "sqc power hl7009"
+	default n
+	help
+	  Say Y here, if supported zte sqc charger hl7009
+
+config VENDOR_SQC_NU2115
+        tristate "NU2115 Charger Pump driver"
+        help
+          If you say yes here you will get support for the NU2115 Charge Pump.
+          This driver can give support for NU2115 Interface.
+
+config VENDOR_SQC_SC8541
+        tristate "SC8541 Charger Pump driver"
+        help
+          If you say yes here you will get support for the SC8541 Charge Pump.
+          This driver can give support for SC8541 Interface.
+
+config VENDOR_SQC_UPM6720
+        tristate "UPM6720 Charger Pump driver"
+        help
+          If you say yes here you will get support for the UPM6720 Charge Pump.
+          This driver can give support for UPM6720 Interface.
+
+config VENDOR_SQC_SD76930
+	tristate "sqc power sd76930"
+	default n
+	help
+	  Say Y here, if supported zte sqc charger sd76930
+

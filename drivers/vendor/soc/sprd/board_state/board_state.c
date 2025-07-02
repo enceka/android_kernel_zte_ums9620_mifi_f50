@@ -7,54 +7,111 @@
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
 #include <linux/slab.h>
+#include <linux/version.h>
+#include <linux/ctype.h>
+#include <linux/of.h>
 
 MODULE_LICENSE("Dual BSD/GPL");
 
-#define debug(fmt, ...) \
-	pr_debug("zte_board_state: " fmt, ##__VA_ARGS__)
+#define ZTE_BSP_LOG_PREFIX "[ZTE_LDD_BOOT][BOARDSTATE]"
+#define log_err(fmt, ...) pr_err(ZTE_BSP_LOG_PREFIX "[ERR]" fmt, ##__VA_ARGS__)
+#define log_warn(fmt, ...) pr_warn(ZTE_BSP_LOG_PREFIX "[WARN]" fmt, ##__VA_ARGS__)
+#define log_info(fmt, ...) pr_info(ZTE_BSP_LOG_PREFIX "[INFO]" fmt, ##__VA_ARGS__)
+#define log_debug(fmt, ...) pr_debug(ZTE_BSP_LOG_PREFIX "[DEBUG]" fmt, ##__VA_ARGS__)
 
 #define MAX_SIZE 50
 #define EFUSE_ENABLE_VALUE 5
 #define HARDWAREID_PROC_NAME "driver/board_id"
-
+#define BOARDID_CMDLINE_STR "androidboot.zte_boardid="
+#define EFUSE_STATE_CMDLINE_STR "efuse_state="
 
 static int boardid = -1;
 static int efuse_state = -1;
 
-static int __init boardid_setup(char *str)
+static int __init boardid_setup(const char *cmdline)
 {
+	const char *p;
+	char buf[16];
+	int i = 0;
 	long value;
 	int err;
 
-	err = kstrtol(str, 0, &value);
+	p = strstr(cmdline, BOARDID_CMDLINE_STR);
+	if (!p)
+		return -1;
+
+	p = p + strlen(BOARDID_CMDLINE_STR);
+	while (isspace(*p)) {
+		if (*p == '\0')
+			return -1;
+		p++;
+	}
+
+	memset(buf, 0, 16);
+	for (i = 0; i < 16; i++) {
+		if ((!isspace(*p)) && *p)
+			buf[i] = *p;
+		else {
+			buf[i] = '\0';
+			break;
+		}
+		p++;
+	}
+
+	err = kstrtol(buf, 0, &value);
 	if (err)
 		return err;
 	boardid = value;
-	return 1;
+
+	return 0;
 }
-__setup("androidboot.zte_boardid=", boardid_setup);
 
 int zte_get_boardid(void)
 {
 	return boardid;
 }
+
 EXPORT_SYMBOL(zte_get_boardid);
 
-static int __init efuse_state_setup(char *str)
+static int __init efuse_state_setup(const char *cmdline)
 {
+	const char *p;
+	char buf[16];
+	int i = 0;
 	long value;
 	int err;
 
-	err = kstrtol(str, 0, &value);
+	p = strstr(cmdline, EFUSE_STATE_CMDLINE_STR);
+	if (!p)
+		return -1;
+	p = p + strlen(EFUSE_STATE_CMDLINE_STR);
+	while (isspace(*p)) {
+		if (*p == '\0')
+			return -1;
+		p++;
+	}
+
+	memset(buf, 0, 16);
+	for (i = 0; i < 16; i++) {
+		if ((!isspace(*p)) && *p)
+			buf[i] = *p;
+		else {
+			buf[i] = '\0';
+			break;
+		}
+		p++;
+	}
+
+	err = kstrtol(buf, 0, &value);
 	if (err)
 		return err;
 	if (value == EFUSE_ENABLE_VALUE)
 		efuse_state = 1;
 	else
 		efuse_state = 0;
-	return 1;
+
+	return 0;
 }
-__setup("efuse_state=", efuse_state_setup);
 
 int zte_get_efuse_state(void)
 {
@@ -82,13 +139,13 @@ static struct attribute_group mvd_attr_group = {
 
 static int zte_board_state_misc_open(struct inode *inode, struct file *file)
 {
-	debug("open\n");
+	log_debug("open\n");
 	return 0;
 }
 
 static long zte_board_state_misc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	debug("ioctl\n");
+	log_debug("ioctl\n");
 
 	return 0;
 }
@@ -131,24 +188,36 @@ static struct file_operations hardwareid_proc_fops = {
 static int __init zte_board_state_init(void)
 {
 	int ret = 0;
-	struct proc_dir_entry* file;
+	struct proc_dir_entry *file;
+	struct device_node *cmdline_node;
+	const char *cmdline;
 
-	debug("zte_board state init\n");
+	log_info("zte_board state init\n");
+
+	cmdline_node = of_find_node_by_path("/chosen");
+	ret = of_property_read_string(cmdline_node, "bootargs", &cmdline);
+	if (ret) {
+		log_err("%s: Can't not parse bootargs\n", __func__);
+		return -1;
+	}
+
+	boardid_setup(cmdline);
+	efuse_state_setup(cmdline);
 
 	ret = misc_register(&zte_board_state_misc_dev[0]);
 	if (ret) {
-		debug("fail to register misc driver: %d\n", ret);
+		log_err("fail to register misc driver: %d\n", ret);
 		goto register_fail;
 	}
 
 	/*ret = device_create_file(zte_board_state_misc_dev[0].this_device, &dev_attr_id);*/
 	ret  = sysfs_create_group(&zte_board_state_misc_dev[0].this_device->kobj, &mvd_attr_group);
 	if (ret) {
-		debug("fail to create file: %d\n", ret);
+		log_err("fail to create file: %d\n", ret);
 		goto register_fail;
 	}
 	ret = zte_get_efuse_state();
-	pr_debug("zte_get_efuse_state(%d)\n", ret);
+	log_debug("zte_get_efuse_state(%d)\n", ret);
 
 	file = NULL;
 
@@ -166,7 +235,7 @@ register_fail:
 
 static void __exit zte_board_state_exit(void)
 {
-	debug("zte_board_state_exit exit\n");
+	log_info("zte_board_state_exit exit\n");
 	sysfs_remove_group(&zte_board_state_misc_dev[0].this_device->kobj, &mvd_attr_group);
 	misc_deregister(&zte_board_state_misc_dev[0]);
 }

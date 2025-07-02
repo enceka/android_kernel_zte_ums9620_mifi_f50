@@ -36,6 +36,10 @@ int cts_suspend(struct chipone_ts_data *cts_data)
 
     cts_info("Suspend");
 
+#ifdef CONFIG_TOUCHSCREEN_POINT_REPORT_CHECK
+	cancel_delayed_work_sync(&tpd_cdev->point_report_check_work);
+#endif
+
     cts_lock_device(&cts_data->cts_dev);
     ret = cts_suspend_device(&cts_data->cts_dev);
     cts_unlock_device(&cts_data->cts_dev);
@@ -64,10 +68,6 @@ int cts_suspend(struct chipone_ts_data *cts_data)
         }
     }
 #endif /* CFG_CTS_GESTURE */
-
-#ifdef CONFIG_TOUCHSCREEN_POINT_REPORT_CHECK
-	cancel_delayed_work_sync(&tpd_cdev->point_report_check_work);
-#endif
 
 /** - To avoid waking up while not sleeping,
  *delay 20ms to ensure reliability
@@ -718,7 +718,7 @@ err_deinit_platform_data:
     kfree(cts_data->pdata);
 err_free_cts_data:
     kfree(cts_data);
-
+    tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_CHIPONE;
     cts_err("Probe failed %d", ret);
 
     return ret;

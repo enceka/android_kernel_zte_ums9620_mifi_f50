@@ -17,6 +17,7 @@
 #include "zte_lcd_easyquick_lowbl_icnl9916_boe_6p745_hd.dtsi"
 #include "zte_lcd_huaying_icnl9916_huajiacai_6p745_hd.dtsi"
 #include "../lcd/lcd_dummy_mipi.dtsi"
+/*#include <dt-bindings/wdv/wdv.h>*/
 
 / {
 
@@ -255,6 +256,7 @@
 		reg = <0x0 0x9e000000 0x0 0x00ab0000>;
 	};
 
+#ifdef BSP_KERNEL_CONFIG_WIDEVINE_L1
 	oemcrypto_reserved: oemcrypto@b6100000 {
 		reg = <0x0 0xb6100000 0x0 0x1100000>;
 	};
@@ -265,7 +267,7 @@
 		reg = <0x0 0xdf400000 0x0 0x10400000>;
 		reusable;
 	};
-
+#endif
 };
 
 &thm_zone {
@@ -720,12 +722,14 @@
 	#address-cells = <1>;
 	#size-cells = <0>;
 
+#ifdef BSP_KERNEL_CONFIG_WIDEVINE_L1
 	heap@7 {
 		reg = <7>;
 		label = "carveout_oemcrypto";
 		type = <2>;
 		memory-region = <&oemcrypto_reserved>;
 	};
+#endif
 };
 
 &adi_bus {

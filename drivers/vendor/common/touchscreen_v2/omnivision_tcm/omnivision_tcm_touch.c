@@ -88,6 +88,9 @@ enum touch_report_code {
 	TOUCH_TUNING_GAUSSIAN_WIDTHS = 0x80,
 	TOUCH_TUNING_SMALL_OBJECT_PARAMS,
 	TOUCH_TUNING_0D_BUTTONS_VARIANCE,
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	TOUCH_KNUCKLE_DATA = 0xca,
+#endif
 };
 
 struct object_data {
@@ -107,6 +110,12 @@ struct input_params {
 	unsigned int max_objects;
 };
 
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+#define KNUCKLE_DATA_SIZE 102
+#define ZTE_KNUCKLE_DATA_SIZE 100
+static unsigned char zte_knuckle_data[ZTE_KNUCKLE_DATA_SIZE] = {0};
+int ovt_tcm_read_roi_diffdata(unsigned char *data);
+#endif
 struct touch_data {
 	struct object_data *object_data;
 	unsigned int timestamp;
@@ -124,6 +133,9 @@ struct touch_data {
 	unsigned int fd_data;
 	unsigned int force_data;
 	unsigned int fingerprint_area_meet;
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	unsigned char knuckle_data[KNUCKLE_DATA_SIZE];
+#endif
 };
 
 struct touch_hcd {
@@ -136,6 +148,9 @@ struct touch_hcd {
 	unsigned int max_objects;
 	struct mutex report_mutex;
 	struct input_dev *input_dev;
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	struct input_dev *proximity_input_dev;
+#endif
 	struct touch_data touch_data;
 	struct input_params input_params;
 	struct ovt_tcm_buffer out;
@@ -144,7 +159,9 @@ struct touch_hcd {
 };
 
 static struct touch_hcd *touch_hcd;
-
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+static int ovt_check_face_state(int current_face_state);
+#endif
 /**
  * touch_free_objects() - Free all touch objects
  *
@@ -282,6 +299,10 @@ static int touch_parse_report(void)
 	struct object_data *object_data;
 	struct ovt_tcm_hcd *tcm_hcd = touch_hcd->tcm_hcd;
 	static unsigned int end_of_foreach;
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	int i;
+	unsigned char temp_data;
+#endif
 
 	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
 	touch_data = &touch_hcd->touch_data;
@@ -629,6 +650,56 @@ static int touch_parse_report(void)
 			bits = config_data[idx++];
 			offset += bits;
 			break;
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+		case TOUCH_KNUCKLE_DATA:
+			ovt_info(DEBUG_LOG, "TOUCH_KNUCKLE_DATA\n");
+			bits = config_data[idx++];
+			bits = bits | (config_data[idx++] << 8);
+			retval = secure_memcpy(&touch_data->knuckle_data[0], KNUCKLE_DATA_SIZE, &tcm_hcd->report.buffer.buf[offset/8], bits / 8, bits / 8);
+			if (retval < 0) {
+				ovt_info(ERR_LOG, "Failed to copy knuckle data\n");
+				return retval;
+			} else {
+				ovt_info(DEBUG_LOG, "Success to copy knuckle data\n");
+				/* print OV 102 bytes knuckle_data :
+					4 bytes head(index、object type、peakX、peakY)
+					98 bytes data */
+				ovt_info(INFO_LOG, "==========================OVT ROI START=======================\n");
+				for (i = 0 ; i < KNUCKLE_DATA_SIZE ; i ++) {
+					pr_cont("ROI[%5d]    ", touch_data->knuckle_data[i]);
+					if ((i > 0) && ((i+1) % 10 == 0)) {
+						pr_cont("\n");
+					}
+				}
+				pr_cont("\n");
+				ovt_info(INFO_LOG, "==========================OVT ROI END=========================\n");
+
+				/* copy OV 2 bytes head and 98 bytes data to zte */
+				for (i = 0 ; i < ZTE_KNUCKLE_DATA_SIZE ; i ++) {
+					zte_knuckle_data[i] = touch_data->knuckle_data[i + 2];
+				}
+				/* print 100 bytes zte_knuckle_data */
+				ovt_info(INFO_LOG, "==========================ZTE ROI START=======================\n");
+				for (i = 0 ; i < ZTE_KNUCKLE_DATA_SIZE ; i ++) {
+					pr_cont("ROI[%5d]    ", zte_knuckle_data[i]);
+					if ((i > 0) && ((i+1) % 10 == 0)) {
+						pr_cont("\n");
+					}
+				}
+				ovt_info(INFO_LOG, "==========================ZTE ROI END=========================\n");
+
+				/* 98 bytes data : low high -> hign low */
+				for(i = 0 ; i < 49 ; i ++) {
+					temp_data = zte_knuckle_data[2 + (i * 2)];
+					zte_knuckle_data[2 + (i * 2)] = zte_knuckle_data[2 + (i * 2 + 1)];
+					zte_knuckle_data[2 + (i * 2 + 1)] = temp_data;
+				}
+
+				ovt_tcm_read_roi_diffdata(zte_knuckle_data);
+			}
+			offset += bits;
+			break;
+#endif
 		default:
 			bits = config_data[idx++];
 			offset += bits;
@@ -666,6 +737,10 @@ static void touch_report(void)
 	const struct ovt_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
 
 	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+#ifdef CONFIG_TOUCHSCREEN_POINT_REPORT_CHECK
+	cancel_delayed_work_sync(&tpd_cdev->point_report_check_work);
+	queue_delayed_work(tpd_cdev->tpd_report_wq, &tpd_cdev->point_report_check_work, msecs_to_jiffies(80));
+#endif
 
 	if (!touch_hcd->init_touch_ok)
 		return;
@@ -688,6 +763,10 @@ static void touch_report(void)
 	touch_data = &touch_hcd->touch_data;
 	object_data = touch_hcd->touch_data.object_data;
 
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	ovt_check_face_state(touch_data->fd_data);
+	touch_data->fd_data = FACE_STATUS_NONE;
+#endif
 	/*zte_add*/
 	if (tcm_hcd->wakeup_gesture_enabled) {
 		if (touch_data->gesture_id == GESTURE_DOUBLE_TAP && tcm_hcd->in_suspend) {
@@ -989,9 +1068,232 @@ static int touch_set_input_dev(void)
 		touch_hcd->input_dev = NULL;
 		return retval;
 	}
+	tpd_cdev->input = touch_hcd->input_dev;
 	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
 	return 0;
 }
+
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+static struct class ps_sensor_class = {
+	.name = "tp_ps",
+	.owner = THIS_MODULE,
+};
+
+static ssize_t delay_show(struct class *class,
+		struct class_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, 8, "%d\n", 200);
+}
+
+static ssize_t delay_store(struct class *class,
+		struct class_attribute *attr,
+		const char *buf, size_t count)
+{
+	return count;
+}
+
+static CLASS_ATTR_RW(delay);
+
+
+static ssize_t enable_show(struct class *class,
+		struct class_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, 64, "%d\n", touch_hcd->tcm_hcd->ovt_proximity_enable);
+}
+
+static ssize_t enable_store(struct class *class,
+		struct class_attribute *attr,
+		const char *buf, size_t count)
+{
+	unsigned int enable;
+	int ret = 0;
+	int i = 0;
+	int handle;
+	struct ovt_tcm_hcd *tcm_hcd = touch_hcd->tcm_hcd;
+
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
+	ret = sscanf(buf, "%d %d\n", &handle, &enable);
+
+	if (ret != 2) {
+		ovt_info(ERR_LOG, "%s: sscanf tp_ps enable data error!!! ret = %d \n", __func__, ret);
+		return count;
+	}
+
+	if (!touch_hcd->proximity_input_dev) {
+		ovt_info(ERR_LOG, "enable psensor fail : have no input dev\n");
+		return count;
+	}
+
+	mutex_lock(&touch_hcd->proximity_input_dev->mutex);
+	enable = (enable > 0) ? 1 : 0;
+	tcm_hcd->ovt_proximity_state = 0;
+	tcm_hcd->ovt_proximity_enable = enable;
+	tcm_hcd->ovt_proximity_suspended = false;
+
+	if (!tcm_hcd->in_suspend) {
+		do {
+			ret = ovt_tcm_set_func_face_detect_en_state(enable);
+			i++;
+			if (ret == 0) {
+				ovt_info(INFO_LOG, "%s, set tp proximity %s success!\n", __func__, enable ? "enable" : "disable");
+				break;
+			} else {
+				ovt_info(INFO_LOG, "%s Failed to set face_detect command ,retry times %d\n", __func__, i);
+			}
+		} while (i < 3);
+	} else {
+		ovt_info(INFO_LOG, "%s tp suspend save enable flag!\n", __func__);
+	}
+
+	/* init value far for vts test*/
+	if (enable) {
+		input_report_abs(touch_hcd->proximity_input_dev, ABS_DISTANCE, 1);
+		input_sync(touch_hcd->proximity_input_dev);
+	}
+
+	mutex_unlock(&touch_hcd->proximity_input_dev->mutex);
+	return count;
+}
+
+static CLASS_ATTR_RW(enable);
+
+static ssize_t flush_show(struct class *class,
+		struct class_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, 64, "%d\n", touch_hcd->tcm_hcd->ovt_proximity_enable);
+}
+
+static ssize_t flush_store(struct class *class,
+		struct class_attribute *attr,
+		const char *buf, size_t count)
+{
+	static int flush_count = 0;
+
+	if (flush_count % 2 == 0) {
+		input_report_abs(touch_hcd->proximity_input_dev, ABS_DISTANCE, -1);
+		flush_count = 1;
+	} else {
+		input_report_abs(touch_hcd->proximity_input_dev, ABS_DISTANCE, -2);
+		flush_count = 0;
+	}
+	input_sync(touch_hcd->proximity_input_dev);
+
+	return count;
+}
+
+static CLASS_ATTR_RW(flush);
+
+static ssize_t batch_store(struct class *class,
+		struct class_attribute *attr,
+		const char *buf, size_t count)
+{
+	return count;
+}
+
+static CLASS_ATTR_WO(batch);
+
+int ovt_proximity_input_init(void)
+{
+	int err = 0;
+
+	ovt_info(INFO_LOG, "enter!\n");
+	/* allocate proximity input_device */
+	touch_hcd->proximity_input_dev = input_allocate_device();
+	if (touch_hcd->proximity_input_dev == NULL) {
+		ovt_info(ERR_LOG, "could not allocate proximity input device\n");
+		return -ENODEV;
+	}
+
+	input_set_drvdata(touch_hcd->proximity_input_dev, touch_hcd);
+	touch_hcd->proximity_input_dev->name = TP_PS_INPUT_DEV;
+	touch_hcd->proximity_input_dev->phys = TP_PS_INPUT_DEV;
+	input_set_capability(touch_hcd->proximity_input_dev, EV_ABS, ABS_DISTANCE);
+	input_set_abs_params(touch_hcd->proximity_input_dev, ABS_DISTANCE, 0, 1, 0, 0);
+
+	/*add class sysfs for tp_ps*/
+	err = class_register(&ps_sensor_class);
+	if (err < 0) {
+		ovt_info(ERR_LOG, "Create fsys class failed (%d)\n", err);
+		goto err_class_creat;
+	}
+
+	err = class_create_file(&ps_sensor_class, &class_attr_delay);
+	if (err < 0) {
+		ovt_info(ERR_LOG, "Create delay file failed (%d)\n", err);
+		goto exit_unregister_class;
+	}
+
+	err = class_create_file(&ps_sensor_class, &class_attr_enable);
+	if (err < 0) {
+		ovt_info(ERR_LOG, "Create enable file failed (%d)\n", err);
+		goto exit_unregister_class;
+	}
+
+	err = class_create_file(&ps_sensor_class, &class_attr_flush);
+	if (err < 0) {
+		ovt_info(ERR_LOG, "Create flush file failed (%d)\n", err);
+		goto exit_unregister_class;
+	}
+
+	err = class_create_file(&ps_sensor_class, &class_attr_batch);
+	if (err < 0) {
+		ovt_info(ERR_LOG, "Create batch file failed (%d)\n", err);
+		goto exit_unregister_class;
+	}
+
+	err = input_register_device(touch_hcd->proximity_input_dev);
+	if (err < 0) {
+		ovt_info(ERR_LOG, "could not register psensor input device\n");
+		goto free_psensor_input_dev;
+	}
+
+	ovt_info(INFO_LOG, "exit!\n");
+	return 0;
+
+free_psensor_input_dev:
+exit_unregister_class:
+	ovt_info(ERR_LOG, "unregister tp_ps_sensor_class.\n");
+	class_unregister(&ps_sensor_class);
+err_class_creat:
+	input_free_device(touch_hcd->proximity_input_dev);
+	return -1;
+}
+
+static int ovt_check_face_state(int current_face_state)
+{
+	struct ovt_tcm_hcd *tcm_hcd = touch_hcd->tcm_hcd;
+
+	if (tcm_hcd->ovt_proximity_enable) {
+		ovt_info(INFO_LOG, "current_face_state is %d\n", current_face_state);
+		if (((current_face_state == FACE_FAR_FROM_1_2_3_CLOSE_WHEN_SCREEN_ON) ||
+			(current_face_state == FACE_FAR_FROM_1_2_3_CLOSE_WHEN_SCREEN_OFF)) &&
+			tcm_hcd->ovt_proximity_suspended) {
+			input_report_abs(touch_hcd->proximity_input_dev, ABS_DISTANCE, 1);
+			input_sync(touch_hcd->proximity_input_dev);
+#ifdef CONFIG_TOUCHSCREEN_POINT_REPORT_CHECK
+			cancel_delayed_work_sync(&tpd_cdev->point_report_check_work);
+			queue_delayed_work(tpd_cdev->tpd_report_wq, &tpd_cdev->point_report_check_work, msecs_to_jiffies(150));
+#endif
+			//report far event
+			ovt_info(INFO_LOG, "proximity report: FAR event\n");
+			tcm_hcd->ovt_proximity_suspended = false;
+		} else if (((current_face_state == FACE_CLOSE_1_SMALL_SIGNAL) ||
+					(current_face_state == FACE_CLOSE_FROM_1_2_3_CLOSE_WHEN_SCREEN_OFF)) &&
+					!tcm_hcd->ovt_proximity_state && !tcm_hcd->ovt_proximity_suspended) {
+			tcm_hcd->ovt_proximity_state = 1;
+			input_report_abs(touch_hcd->proximity_input_dev, ABS_DISTANCE, 0);
+			input_sync(touch_hcd->proximity_input_dev);
+			//report near event
+			ovt_info(INFO_LOG, "proximity report: NEAR event\n");
+		}
+	}
+
+	return 0;
+}
+#endif
 
 /**
  * touch_set_report_config() - Set touch report configuration
@@ -1036,6 +1338,15 @@ static int touch_set_report_config(void)
 #if WAKEUP_GESTURE
 	touch_hcd->out.buf[idx++] = TOUCH_GESTURE_ID;
 	touch_hcd->out.buf[idx++] = 8;
+#endif
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	touch_hcd->out.buf[idx++] = TOUCH_FACE_DETECT;
+	touch_hcd->out.buf[idx++] = 8;
+#endif
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	touch_hcd->out.buf[idx++] = TOUCH_KNUCKLE_DATA;
+	touch_hcd->out.buf[idx++] = (KNUCKLE_DATA_SIZE * 8) & 0xff;
+	touch_hcd->out.buf[idx++] = (KNUCKLE_DATA_SIZE * 8) >> 8;
 #endif
 	touch_hcd->out.buf[idx++] = TOUCH_FOREACH_ACTIVE_OBJECT;
 	touch_hcd->out.buf[idx++] = TOUCH_OBJECT_N_INDEX;
@@ -1184,6 +1495,14 @@ static int touch_set_input_reporting(void)
 				"Failed to set up input device\n");
 		goto exit;
 	}
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	retval = ovt_proximity_input_init();
+	if (retval < 0) {
+		ovt_info(ERR_LOG,
+				"Failed to set up input device\n");
+		goto exit;
+	}
+#endif
 
 exit:
 	mutex_unlock(&touch_hcd->report_mutex);
@@ -1294,7 +1613,7 @@ int touch_reinit(struct ovt_tcm_hcd *tcm_hcd)
 		ovt_info(ERR_LOG,
 				"Failed to set up input reporting\n");
 	}
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
 	return retval;
 }
 
@@ -1370,6 +1689,15 @@ int touch_resume(struct ovt_tcm_hcd *tcm_hcd)
 			return retval;
 		}
 	}
+
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	if (tcm_hcd->ovt_proximity_enable) {
+		ovt_info(INFO_LOG, "%s restore psensor status\n", __func__);
+		ovt_tcm_set_func_face_detect_en_state(1);
+		tcm_hcd->ovt_proximity_state = 0;
+		tcm_hcd->ovt_proximity_suspended = false;
+	}
+#endif
 	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
 	return 0;
 }

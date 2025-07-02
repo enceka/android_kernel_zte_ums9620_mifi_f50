@@ -1,6 +1,9 @@
 #ifndef __LINUX_BQ2560X_H
 #define __LINUX_BQ2560X_H
 
+#define SGM41516_VENDOR_ID		12
+#define SGM41516D_VENDOR_ID		13
+
 /* Register 00h */
 #define BQ2560X_REG_00			0x00
 #define BQ2560X_REG00_ENHIZ_MASK		GENMASK(7, 7)
@@ -337,6 +340,9 @@
 #define SGM41513_REG_0D_OTGF_ITREMR_SHIFT       0
 #define SGM41513_REG_0D_OTGF1500KHz_ITREMR_ENABLE       0
 #define SGM41513_REG_0D_OTGF500KHz_ITREMR_DISABLE       1
+
+/* Register 0xA7 */
+#define UPM6910H_REG_A7         0xa7
 
 #endif
 

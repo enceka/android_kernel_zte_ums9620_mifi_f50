@@ -1290,7 +1290,7 @@ static int check_wifi_power_domain_ison(void)
  * 0x40300000 - 0x40358000  wifi 352k share RAM
  * 0x400f1000 - 0x400fe100  wifi reg
  */
-int mdbg_dump_mem(void)
+int mdbg_dump_mem(enum wcn_source_type type)
 {
 	long int count;
 	int ret;
@@ -1317,6 +1317,9 @@ int mdbg_dump_mem(void)
 	mdbg_clear_log();
 	/* mdbg_atcmd_clean(); */
 	cp_dcache_clean_invalid_all();
+
+	if (type == WCN_SOURCE_GNSS)
+		goto dump_gnss;
 
 	p_wcn_dump_regs = get_wcn_dump_mem_area(&dump_array_size);
 
@@ -1589,12 +1592,12 @@ next:
 			       strlen("start_dump_bt_bb_rx_buf_reg"));
 	WCN_INFO("mdbg dump bt_bb_rx_buf %ld ok!\n", count);
 #endif
-
+dump_gnss:
 	/*check the status of gnss*/
 	if (!(marlin_get_power() < 80)) {
 	WCN_INFO("need to dump gnss!\n");
 	/* dump gnss */
-	gnss_dump_mem(0);
+	gnss_dump_mem(type, 0);
 	}
 end:
 	/* Make sure only string "marlin_memdump_finish" to slog one time */

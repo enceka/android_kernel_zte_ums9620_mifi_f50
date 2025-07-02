@@ -9,9 +9,15 @@
 #include "omnivision_common_interface.h"
 
 char ovt_tcm_vendor_name[MAX_NAME_LEN_50] = { 0 };
+char ovt_tcm_firmware_name[MAX_NAME_LEN_50] = { 0 };
+char ovt_tcm_criteria_csv_name[MAX_NAME_LEN_50] = { 0 };
+#ifdef OVT_DEFAULT_FW_IMAGE_NAME
+char ovt_tcm_default_firmware_name[MAX_NAME_LEN_50] = { 0 };
+#endif
 char ovt_tcm_save_file_path[MAX_NAME_LEN_50] = { 0 };
 char ovt_tcm_save_file_name[MAX_NAME_LEN_50] = { 0 };
 int ovt_tcm_tptest_result = 0;
+
 struct tpvendor_t ovt_tcm_vendor_info[] = {
 	{OVT_TCM_MODULE1_ID, OVT_TCM_MODULE1_LCD_NAME },
 	{OVT_TCM_MODULE2_ID, OVT_TCM_MODULE2_LCD_NAME },
@@ -34,6 +40,7 @@ extern int testing_raw_data(void);
 extern int testing_delta_data(void);
 
 extern struct zeroflash_hcd *zeroflash_hcd;
+extern struct touch_hcd *touch_hcd;
 
 static int rst_gpio = 0;
 
@@ -45,7 +52,7 @@ extern struct testing_hcd *testing_hcd;
 int ovt_tcm_pinctrl_init(struct spi_device *spi, struct ovt_tcm_board_data *bdata)
 {
 	int ret = 0;
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+
 	/* Get pinctrl if target uses pinctrl */
 	bdata->ts_pinctrl = devm_pinctrl_get(&spi->dev);
 	if (IS_ERR_OR_NULL(bdata->ts_pinctrl)) {
@@ -74,7 +81,6 @@ int ovt_tcm_pinctrl_init(struct spi_device *spi, struct ovt_tcm_board_data *bdat
 		ovt_info(INFO_LOG, "%s:success to select pin to init state\n", __func__);
 	}
 
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
 	return 0;
 
 err_select_init_state:
@@ -98,9 +104,24 @@ int get_ovt_tcm_module_info_from_lcd(void)
 		}
 	}
 
-	strlcpy(ovt_tcm_vendor_name, ovt_tcm_vendor_info[i].vendor_name, sizeof(ovt_tcm_vendor_name));
-
+	snprintf(ovt_tcm_vendor_name, sizeof(ovt_tcm_vendor_name),
+		ovt_tcm_vendor_info[i].vendor_name);
 	ovt_info(INFO_LOG, "ovt_tcm_vendor_name:%s\n", ovt_tcm_vendor_name);
+
+	snprintf(ovt_tcm_firmware_name, sizeof(ovt_tcm_firmware_name),
+		"%s%s.img", OVT_TCM_FW_NAME, ovt_tcm_vendor_info[i].vendor_name);
+	ovt_info(INFO_LOG, "ovt_tcm_firmware_name:%s\n", ovt_tcm_firmware_name);
+
+	snprintf(ovt_tcm_criteria_csv_name, sizeof(ovt_tcm_criteria_csv_name),
+		"%s%s.csv", OVT_TCM_CSV_NAME, ovt_tcm_vendor_info[i].vendor_name);
+	ovt_info(INFO_LOG, "ovt_tcm_criteria_csv_name:%s\n", ovt_tcm_criteria_csv_name);
+
+#ifdef OVT_DEFAULT_FW_IMAGE_NAME
+	snprintf(ovt_tcm_default_firmware_name, sizeof(ovt_tcm_default_firmware_name),
+		"%s_%s.img", OVT_DEFAULT_FW_IMAGE_NAME, ovt_tcm_vendor_info[i].vendor_name);
+	ovt_info(INFO_LOG, "ovt_tcm_default_firmware_name:%s\n", ovt_tcm_default_firmware_name);
+#endif
+
 	return ovt_tcm_vendor_info[i].vendor_id;
 }
 
@@ -112,16 +133,20 @@ static int ovt_tcm_init_tpinfo(struct ztp_device *cdev)
 #ifndef USE_SPI_BUS
 	struct i2c_client *i2c = to_i2c_client(tcm_hcd->pdev->dev.parent);
 #endif
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	if (!zeroflash_hcd) {
 		ovt_info(ERR_LOG, "%s:error, zeroflash_hcd is NULL!\n", __func__);
 		return -EIO;
 	}
-	if (tcm_hcd->in_suspend)
+	if (tcm_hcd->in_suspend) {
+		ovt_info(ERR_LOG, "%s:error, ovt tp in suspend!\n", __func__);
 		return -EIO;
-
-	mutex_lock(&tcm_hcd->extif_mutex);
+	}
 
 	vendor_id = get_ovt_tcm_module_info_from_lcd();
 	strlcpy(cdev->ic_tpinfo.vendor_name, ovt_tcm_vendor_name, sizeof(cdev->ic_tpinfo.vendor_name));
@@ -135,21 +160,25 @@ static int ovt_tcm_init_tpinfo(struct ztp_device *cdev)
 	cdev->ic_tpinfo.i2c_addr = i2c->addr;
 #endif
 
-	mutex_unlock(&tcm_hcd->extif_mutex);
+	ovt_info(INFO_LOG, "tp_name:%s, vendor_name:%s, firmware_ver=%d\n",
+		cdev->ic_tpinfo.tp_name, cdev->ic_tpinfo.vendor_name, cdev->ic_tpinfo.firmware_ver);
 
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
 	return retval;
 }
 
 static int ovt_tcm_get_headset_state(struct ztp_device *cdev)
 {
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	cdev->headset_state = tcm_hcd->zte_ctrl.headset_state;
 
 	ovt_info(INFO_LOG, "%s:headset_state=%d\n", __func__, cdev->headset_state);
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
+
 	return cdev->headset_state;
 }
 
@@ -158,7 +187,11 @@ static int ovt_tcm_set_headset_state(struct ztp_device *cdev, int enable)
 	int retval = 0;
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
 
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
+
 	if (!zeroflash_hcd) {
 		ovt_info(ERR_LOG, "%s:error, zeroflash_hcd is NULL!\n", __func__);
 		return -EIO;
@@ -185,14 +218,18 @@ static int ovt_tcm_set_headset_state(struct ztp_device *cdev, int enable)
 	}
 
 	ovt_info(INFO_LOG, "%s:retval=%d, headset_state=%d\n", __func__, retval, enable);
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
+
 	return tcm_hcd->zte_ctrl.headset_state;
 }
 
 int ovt_tcm_resume_set_headset_status(struct ovt_tcm_hcd *tcm_hcd)
 {
 	int retval = 0;
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	if (!tcm_hcd->set_dynamic_config) {
 		ovt_info(ERR_LOG, "%s:tcm_hcd->set_dynamic_config in null\n", __func__);
@@ -206,7 +243,6 @@ int ovt_tcm_resume_set_headset_status(struct ovt_tcm_hcd *tcm_hcd)
 		ovt_info(INFO_LOG, "%s:headset_state=0\n", __func__);
 	}
 
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
 	return retval;
 }
 
@@ -214,12 +250,16 @@ static int ovt_tcm_get_sensibility(struct ztp_device *cdev)
 {
 	int retval = 0;
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	cdev->sensibility_enable = tcm_hcd->zte_ctrl.sensibility_level;
 
 	ovt_info(INFO_LOG, "%s:sensibility_level=%d\n", __func__, cdev->sensibility_enable);
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
+
 	return retval;
 }
 
@@ -227,7 +267,11 @@ static int ovt_tcm_set_sensibility(struct ztp_device *cdev, u8 enable)
 {
 	int retval = 0;
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	if (tcm_hcd->in_suspend) {
 		ovt_info(ERR_LOG, "%s:error, ovt tp in suspend!\n", __func__);
@@ -260,25 +304,29 @@ static int ovt_tcm_set_sensibility(struct ztp_device *cdev, u8 enable)
 	}
 
 	ovt_info(INFO_LOG, "%s:retval=%d, sensibility_level=%d\n", __func__, retval, enable);
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
+
 	return retval;
 }
 
 static int ovt_tcm_get_tp_suspend(struct ztp_device *cdev)
 {
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	cdev->tp_suspend = tcm_hcd->in_suspend;
 
 	ovt_info(INFO_LOG, "%s:tp_suspend=%d\n", __func__, cdev->tp_suspend);
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
+
 	return cdev->tp_suspend;
 }
 
 static int ovt_tcm_set_tp_suspend(struct ztp_device *cdev, u8 suspend_node, int enable)
 {
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+	ovt_info(INFO_LOG, "%s enter, enable=%d\n", __func__, enable);
 	if (enable)
 		change_tp_state(LCD_OFF);
 	else
@@ -313,19 +361,27 @@ static int ovt_tcm_suspend_func(void *unused_tcm_hcd)
 static int ovt_tcm_get_wakegesture(struct ztp_device *cdev)
 {
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	cdev->b_gesture_enable = tcm_hcd->wakeup_gesture_enabled;
 
 	ovt_info(INFO_LOG, "%s:gesture_enable=%d\n", __func__, cdev->b_gesture_enable);
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
+
 	return 0;
 }
 
 static int ovt_tcm_enable_wakegesture(struct ztp_device *cdev, int enable)
 {
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	tcm_hcd->enter_gesture = enable;
 	if (tcm_hcd->in_suspend) {
@@ -337,19 +393,31 @@ static int ovt_tcm_enable_wakegesture(struct ztp_device *cdev, int enable)
 	}
 
 	ovt_info(INFO_LOG, "%s:gesture_enable=%d\n", __func__, enable);
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
+
 	return 0;
 }
 
 static bool ovt_tcm_suspend_need_awake(struct ztp_device *cdev)
 {
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	if (!cdev->tp_suspend_write_gesture && tcm_hcd->wakeup_gesture_enabled) {
 		ovt_info(INFO_LOG, "%s:ovt tcm suspend need awake\n", __func__);
 		return true;
 	}
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	if (tcm_hcd->ovt_proximity_state && tcm_hcd->ovt_proximity_enable) {
+		ovt_info(INFO_LOG, "%s:ovt tcm psensor suspend need awake\n", __func__);
+		return true;
+	} else {
+		tcm_hcd->ovt_proximity_enable = 0;
+	}
+#endif
 	cdev->tp_suspend_write_gesture = false;
 	ovt_info(INFO_LOG, "%s:ovt tcm suspend dont need awake\n", __func__);
 	return false;
@@ -359,9 +427,15 @@ static int ovt_tcm_set_display_rotation(struct ztp_device *cdev, int mrotation)
 {
 	int ret = -1;
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
-	bool display_rotation_old = tcm_hcd->zte_ctrl.display_rotation;
+	int display_rotation_old = 0;
 
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
+
+	display_rotation_old = tcm_hcd->zte_ctrl.display_rotation;
+
 
 	if (!zeroflash_hcd) {
 		ovt_info(ERR_LOG, "%s:error, zeroflash_hcd is NULL!\n", __func__);
@@ -414,15 +488,22 @@ static int ovt_tcm_set_display_rotation(struct ztp_device *cdev, int mrotation)
 	}
 
 	ovt_info(INFO_LOG, "%s:ret=%d\n", __func__, ret);
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
+
 	return cdev->display_rotation;
 }
 
 static int ovt_tcm_charger_state_notify(struct ztp_device *cdev)
 {
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
-	bool charger_mode_old = tcm_hcd->zte_ctrl.charger_state;
+	bool charger_mode_old = false;
 	int ret = 0;
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
+
+	charger_mode_old = tcm_hcd->zte_ctrl.charger_state;
 
 	if (!zeroflash_hcd) {
 		ovt_info(ERR_LOG, "%s:error, zeroflash_hcd is NULL!\n", __func__);
@@ -451,7 +532,11 @@ int ovt_tcm_ex_mode_recovery(struct ztp_device *cdev)
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
 	int retval = 0;
 
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
+
 	if (!tcm_hcd->set_dynamic_config) {
 		ovt_info(ERR_LOG, "%s:tcm_hcd->set_dynamic_config in null\n", __func__);
 		return -EIO;
@@ -470,6 +555,18 @@ int ovt_tcm_ex_mode_recovery(struct ztp_device *cdev)
 	} else {
 		ovt_info(INFO_LOG, "%s:headset_state=0\n", __func__);
 	}
+
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	if (tcm_hcd->ovt_proximity_enable) {
+		retval = tcm_hcd->set_dynamic_config(tcm_hcd, DC_ENABLE_FACE, 1);
+		ovt_info(INFO_LOG, "%s:ovt_proximity_enable = 1, retval = %d\n", __func__, retval);
+		if (retval != 0) {
+			ovt_info(INFO_LOG, "Failed to set DC_ENABLE_FACE command\n");
+		}
+	} else {
+		ovt_info(INFO_LOG, "%s:ovt_proximity_enable = 0\n", __func__);
+	}
+#endif
 	return 0;
 }
 
@@ -522,11 +619,9 @@ static int ovt_tcm_data_request(unsigned int cols, unsigned int rows, s16 *frame
 	int ret = 0, i = 0, j = 0, idx = 0;
 	unsigned char *buf;
 
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
-
 	switch (test_type) {
 	case RAWDATA_TEST:
-		ret = testing_raw_data();		
+		ret = testing_raw_data();
 		if (ret < 0) {
 			ovt_info(ERR_LOG, "Failed to get rawdata\n");
 			goto test_end;
@@ -535,7 +630,7 @@ static int ovt_tcm_data_request(unsigned int cols, unsigned int rows, s16 *frame
 		}
 		break;
 	case DELTA_TEST:
-		ret = testing_delta_data();		
+		ret = testing_delta_data();
 		if (ret < 0) {
 			ovt_info(ERR_LOG, "Failed to get diffdata\n");
 			goto test_end;
@@ -563,7 +658,6 @@ static int ovt_tcm_data_request(unsigned int cols, unsigned int rows, s16 *frame
 	if (info_data != NULL)
 		kfree(info_data);
 
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
 	return 0;
 
 test_end:
@@ -579,7 +673,10 @@ int ovt_tcm_copy_delta_raw_data(struct ztp_device *cdev, s16 *frame_data_words, 
 	int j = 1;
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
 
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	row = le2_to_uint(tcm_hcd->app_info.num_of_image_rows);
 	col = le2_to_uint(tcm_hcd->app_info.num_of_image_cols);
@@ -628,8 +725,6 @@ static int  ovt_tcm_get_noise_data(struct ztp_device *cdev, struct ovt_tcm_hcd *
 	int retval = 0;
 	int len = 0;
 
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
-
 	row = le2_to_uint(tcm_hcd->app_info.num_of_image_rows);
 	col = le2_to_uint(tcm_hcd->app_info.num_of_image_cols);
 
@@ -658,7 +753,6 @@ static int  ovt_tcm_get_noise_data(struct ztp_device *cdev, struct ovt_tcm_hcd *
 	}
 	retval = 0;
 	msleep(20);
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
 
 DATA_REQUEST_FAILED:
 	kfree(frame_data_words);
@@ -671,6 +765,11 @@ static int ovt_tcm_get_noise(struct ztp_device *cdev)
 {
 	int ret =0;
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	if(tp_alloc_tp_firmware_data(10 * RT_DATA_LEN)) {
 		ovt_info(ERR_LOG, "%s alloc tp firmware data fai\n", __func__);
@@ -702,6 +801,11 @@ static int ovt_tcm_shutdown(struct ztp_device *cdev)
 {
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
 
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
+
 	ovt_tcm_suspend_func(tcm_hcd);
 	return 0;
 }
@@ -711,14 +815,17 @@ static int tpd_test_cmd_show(struct ztp_device *cdev, char *buf)
 	ssize_t num_read_chars = 0;
 	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
 
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);	
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
 
 	ovt_info(INFO_LOG, "%s:RAWDATA_COL:%d\n", __func__, tcm_hcd->zte_ctrl.rawdata_cols);
 	ovt_info(INFO_LOG, "%s:RAWDATA_ROW:%d\n", __func__, tcm_hcd->zte_ctrl.rawdata_rows);
 	num_read_chars = snprintf(buf, PAGE_SIZE, "%d,%d,%d,%d", ovt_tcm_tptest_result,
 		tcm_hcd->zte_ctrl.rawdata_cols, tcm_hcd->zte_ctrl.rawdata_rows, 0);
 	ovt_info(INFO_LOG, "%s:ovt tcm test:%s\n", __func__, buf);
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
+
 	return num_read_chars;
 }
 
@@ -726,9 +833,9 @@ static int tpd_test_cmd_store(struct ztp_device *cdev)
 {
 	int result = 0, retry = 0;
 
-	while (retry < 3) {		
+	while (retry < 3) {
 		ovt_tcm_tptest_result = 0;
-		result = testing_do_testing();	
+		result = testing_do_testing();
 		if (result) {
 			ovt_info(INFO_LOG, "ovt_tcm_test %d times fail", (retry + 1));
 			result = 0;
@@ -749,14 +856,192 @@ static int tpd_test_cmd_store(struct ztp_device *cdev)
 	return 0;
 }
 
+static int ovt_tcm_bbat_test(struct ztp_device *cdev)
+{
+	int ret = 0;
+	struct ovt_tcm_hcd *tcm_hcd = (struct ovt_tcm_hcd *)cdev->private;
+	ovt_info(INFO_LOG, "%s enter\n", __func__);
+
+	if (!tcm_hcd) {
+		ovt_info(ERR_LOG, "%s:error, tcm_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
+
+	if (!zeroflash_hcd) {
+		ovt_info(ERR_LOG, "%s:error, zeroflash_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
+
+	if (tcm_hcd->in_suspend || !zeroflash_hcd->fw_ready) {
+		ovt_info(ERR_LOG, "%s:error, ovt tp in suspend or fw not ready!\n", __func__);
+		return -EIO;
+	}
+
+	/*init*/
+	cdev->bbat_test_enter = true;
+	cdev->bbat_test_result = 0;
+	reinit_completion(&cdev->bbat_test_completion);
+	zeroflash_hcd->fw_ready = false;
+
+	/* ovt tp int/rest test*/
+	ovt_info(INFO_LOG, "ovt_tcm rst_gpio = %d\n", tcm_hcd->hw_if->bdata->reset_gpio);
+	if (tcm_hcd->hw_if->bdata->reset_gpio) {
+		gpio_set_value(tcm_hcd->hw_if->bdata->reset_gpio, 0);
+		msleep(20);
+		gpio_set_value(tcm_hcd->hw_if->bdata->reset_gpio, 1);
+		if (!zeroflash_hcd->fw_ready) {
+			ret = wait_for_completion_timeout(&cdev->bbat_test_completion, msecs_to_jiffies(700));
+			if (!ret) {
+				cdev->bbat_test_result = cdev->bbat_test_result | TP_RST_BAAT_TEST_FAIL | TP_INT_BAAT_TEST_FAIL;
+				ovt_info(ERR_LOG, "bbat_test_completion timeout, ovt_tcm_bbat_test failed\n");
+			} else {
+				ovt_info(INFO_LOG, "ovt_tcm_bbat_test success\n");
+			}
+		} else {
+			ovt_info(INFO_LOG, "ovt_tcm_bbat_test success\n");
+		}
+	} else {
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_RST_BAAT_TEST_FAIL | TP_INT_BAAT_TEST_FAIL;
+		ovt_info(ERR_LOG, "ovt_tcm rst_gpio is not valid, ovt_tcm_bbat_test failed\n");
+	}
+
+	cdev->bbat_test_enter = false;
+	ovt_info(INFO_LOG, "%s exit\n", __func__);
+	return cdev->bbat_test_result;
+}
+
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+int ovt_tcm_read_roi_diffdata(unsigned char *data)
+{
+	struct ztp_device *cdev = tpd_cdev;
+
+	ovt_info(INFO_LOG, "%s enter, roi_diffdata_switch = %d\n", __func__, cdev->roi_diffdata_switch);
+	if (!cdev->roi_diffdata_switch || !cdev->touch_press) {
+		return -EIO;
+	}
+
+	if (!data) {
+		return -EINVAL;
+	}
+
+	ovt_info(INFO_LOG, "%s collect_diffdata_enable = %d\n", __func__, cdev->collect_diffdata_enable);
+	if (cdev->collect_diffdata_enable) {
+		if (cdev->wait_collect_completion && (cdev->get_diffdata_count >= COLLECT_MAX_COUNT)) {
+			ovt_info(INFO_LOG, "collect diffdata complete\n");
+			cdev->wait_collect_completion = false;
+			//complete(&cdev->diffdata_collect_completion);
+			return 0;
+		}
+	}
+
+	ovt_info(INFO_LOG, "%s get_diffdata_count = %d\n", __func__, cdev->get_diffdata_count);
+	if (cdev->get_diffdata_count == 0) {
+		memset(cdev->roi_diffdata, 0, ROI_DIFFDATA_LENGTH);
+		memset(cdev->collect_diffdata, 0, ROI_DIFFDATA_LENGTH * COLLECT_MAX_COUNT);
+	}
+
+	if (cdev->get_diffdata_count >= COLLECT_MAX_COUNT) {
+		return 0;
+	}
+
+	memcpy(cdev->roi_diffdata, data, ROI_DIFFDATA_LENGTH);
+
+	memcpy(cdev->collect_diffdata + cdev->get_diffdata_count * ROI_DIFFDATA_LENGTH,
+		 cdev->roi_diffdata, ROI_DIFFDATA_LENGTH);
+	tpd_get_hex_diffdata(cdev);
+	cdev->get_diffdata_count++;
+
+	ovt_info(INFO_LOG, "%s exit\n", __func__);
+	return 0;
+}
+
+static unsigned char *ovt_tcm_get_roi_diffdata(struct ztp_device *cdev)
+{
+	ovt_info(INFO_LOG, "%s enter\n", __func__);
+	if (!cdev->roi_diffdata_switch) {
+		ovt_info(ERR_LOG, "Get ROI diffdata, switch = OFF\n");
+		return NULL;
+	}
+	if (cdev->collect_diffdata_enable) {
+		ovt_info(INFO_LOG, "Get collect_diffdata\n");
+		return (unsigned char *)cdev->collect_diffdata;
+	} else {
+		ovt_info(INFO_LOG, "Get ROI diffdata\n");
+		return (unsigned char *)cdev->roi_diffdata;
+	}
+}
+
+static int ovt_tcm_set_roi_switch(u8 roi_switch)
+{
+	int ret;
+	ovt_info(INFO_LOG, "%s enter, roi_switch = %d\n", __func__, roi_switch);
+
+	if (!zeroflash_hcd) {
+		ovt_info(ERR_LOG, "%s:error, zeroflash_hcd is NULL!\n", __func__);
+		return -EIO;
+	}
+
+	if (roi_switch) {
+		ovt_info(INFO_LOG, "%s DC_ENABLE_KNUCKLE = 1\n", __func__);
+		ret = zeroflash_hcd->tcm_hcd->set_dynamic_config(zeroflash_hcd->tcm_hcd, DC_ENABLE_KNUCKLE, 1);
+	} else {
+		ovt_info(INFO_LOG, "%s DC_ENABLE_KNUCKLE = 0\n", __func__);
+		ret = zeroflash_hcd->tcm_hcd->set_dynamic_config(zeroflash_hcd->tcm_hcd, DC_ENABLE_KNUCKLE, 0);
+	}
+
+	ovt_info(INFO_LOG, "%s exit, ret = %d\n", __func__, ret);
+	return ret;
+}
+
+static int ovt_tcm_send_roi_cmd(struct ztp_device *cdev, enum ts_cmd cmd)
+{
+	int ret = 0;
+	ovt_info(INFO_LOG, "%s enter, cmd = %d\n", __func__, cmd);
+
+	switch (cmd) {
+	case TS_CMD_READ:
+		ovt_info(INFO_LOG, "roi_diffdata_switch = %d\n", cdev->roi_diffdata_switch);
+		break;
+
+	case TS_CMD_WRITE:
+		ret = ovt_tcm_set_roi_switch(!!cdev->roi_diffdata_switch);
+		break;
+
+	default:
+		ovt_info(ERR_LOG, "unknown cmd\n");
+		ret = -EINVAL;
+		break;
+	}
+	return ret;
+
+	ovt_info(INFO_LOG, "%s exit\n", __func__);
+}
+#endif
+
+void ovt_tcm_tpd_enable_irq(bool value)
+{
+	if (!zeroflash_hcd) {
+		ovt_info(ERR_LOG, "error, zeroflash_hcd is NULL!\n");
+		return;
+	}
+
+	if (value) {
+		zeroflash_hcd->tcm_hcd->enable_irq(zeroflash_hcd->tcm_hcd, true, NULL);
+	} else {
+		zeroflash_hcd->tcm_hcd->enable_irq(zeroflash_hcd->tcm_hcd, false, true);
+	}
+}
+
 void ominivision_tpd_register_fw_class(struct ovt_tcm_hcd *tcm_hcd)
 {
-	ovt_info(DEBUG_LOG, "%s enter\n", __func__);
+	ovt_info(INFO_LOG, "%s enter\n", __func__);
 
+	get_ovt_tcm_module_info_from_lcd();
 	tpd_cdev->private = (void *)tcm_hcd;
 	tpd_cdev->get_tpinfo = ovt_tcm_init_tpinfo;
 	tpd_cdev->tp_self_test = tpd_test_cmd_store;
 	tpd_cdev->get_tp_self_test_result = tpd_test_cmd_show;
+	tpd_cdev->tp_bbat_test = ovt_tcm_bbat_test;
 
 	tpd_cdev->headset_state_show = ovt_tcm_get_headset_state;
 	tpd_cdev->set_headset_state = ovt_tcm_set_headset_state;
@@ -779,6 +1064,11 @@ void ominivision_tpd_register_fw_class(struct ovt_tcm_hcd *tcm_hcd)
 
 	tpd_cdev->set_display_rotation = ovt_tcm_set_display_rotation;
 
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	tpd_cdev->get_roi_diffdata = ovt_tcm_get_roi_diffdata;
+	tpd_cdev->tp_send_roi_cmd = ovt_tcm_send_roi_cmd;
+#endif
+
 	tpd_cdev->tp_fw_upgrade = ovt_tcm_fw_upgrade;
 	tpd_cdev->get_noise = ovt_tcm_get_noise;
 	tpd_cdev->tpd_shutdown = ovt_tcm_shutdown;
@@ -790,12 +1080,21 @@ void ominivision_tpd_register_fw_class(struct ovt_tcm_hcd *tcm_hcd)
 	ovt_info(INFO_LOG, "%s:rst_gpio=%d\n", __func__, rst_gpio);
 	tpd_cdev->tp_reset_gpio_output = ovt_tcm_reset_gpio_output;
 #endif
-
+	tpd_cdev->tpd_enable_irq = ovt_tcm_tpd_enable_irq;
+#ifdef OVT_TCM_SUSPEND_AFTER_LCD_CMD_OFF_END
+	tpd_cdev->tp_suspend_after_lcd_cmd_off_end = true;
+#endif
 	tpd_cdev->max_x = tcm_hcd->zte_ctrl.panel_max_x;
 	tpd_cdev->max_y = tcm_hcd->zte_ctrl.panel_max_y;
 	tcm_hcd->zte_ctrl.charger_state = false;
 	tcm_hcd->zte_ctrl.headset_state = false;
 	tcm_hcd->zte_ctrl.display_rotation = 0;
-
-	ovt_info(DEBUG_LOG, "%s exit\n", __func__);
+	/* tpd_cdev->input = touch_hcd->input_dev; // init in touch_set_input_dev*/
+	tpd_cdev->TP_have_registered = true;
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	zlog_tp_dev.device_name = ovt_tcm_vendor_name;
+	zlog_tp_dev.ic_name = "Omnivision";
+	TPD_ZLOG("device_name:%s, ic_name: %s", zlog_tp_dev.device_name, zlog_tp_dev.ic_name);
+#endif
+	ovt_info(INFO_LOG, "%s exit\n", __func__);
 }

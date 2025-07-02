@@ -35,14 +35,30 @@
 #define BUS_W_DLEN ((BUS_RW_MAX_LEN-BUS_W_HLEN)-((BUS_RW_MAX_LEN-BUS_W_HLEN)%4))
 
 #if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
-#define D(x...) pr_debug("[HXTP] " x)
-#define I(x...) pr_info("[HXTP] " x)
-#define W(x...) pr_warn("[HXTP][WARNING] " x)
-#define E(x...) pr_err("[HXTP][ERROR] " x)
+#define D(x...) \
+	do { \
+		pr_debug("[ZTE_LDD_TP][TPD_HXTP] " x); \
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_HXTP] " x); \
+	} while (0)
+#define I(x...) \
+	do { \
+		pr_info("[ZTE_LDD_TP][TPD_HXTP] " x); \
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_HXTP] " x); \
+	} while (0)
+#define W(x...) \
+	do { \
+		pr_warn("[ZTE_LDD_TP][TPD_HXTP][WARNING] " x); \
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_HXTP][WARNING] " x); \
+	} while (0)
+#define E(x...) \
+	do { \
+		pr_err("[ZTE_LDD_TP][TPD_HXTP][ERROR] " x); \
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_HXTP][ERROR] " x); \
+	} while (0)
 #define DIF(x...) \
 do { \
-	if (debug_flag) \
-		pr_debug("[HXTP][DEBUG] " x) \
+	if (debug_flag || tpd_cdev->debug_log_enable) \
+		pr_info("[ZTE_LDD_TP][HXTP][DEBUG] " x) \
 	} while (0)
 #else
 #define D(x...)

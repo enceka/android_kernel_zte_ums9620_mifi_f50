@@ -351,6 +351,9 @@ int zeroflash_parse_fw_image(void)
 			image_info->packrat_number = le4_to_uint(&content[14]);
 		/*zte_add*/
 			zeroflash_hcd->tcm_hcd->zte_ctrl.fw_ver = image_info->packrat_number;
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+			tpd_cdev->ic_tpinfo.firmware_ver = image_info->packrat_number;
+#endif
 			ovt_info(INFO_LOG, "%s:image_info->packrat_number = %d\n", __func__, image_info->packrat_number);
 			ovt_info(DEBUG_LOG,
 					"Application config size = %d\n",
@@ -405,7 +408,6 @@ static int zeroflash_get_fw_image(void)
 	int retval;
 	struct ovt_tcm_hcd *tcm_hcd = zeroflash_hcd->tcm_hcd;
 
-	char fwname[50] = { 0 };/*zte_add*/
 	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
 
 	if (zeroflash_hcd->fw_entry != NULL) {
@@ -417,22 +419,27 @@ static int zeroflash_get_fw_image(void)
 	if (zeroflash_hcd->adb_fw == NULL) {
 		/*zte_add*/
 		get_ovt_tcm_module_info_from_lcd();
-		snprintf(fwname, sizeof(fwname), "%s%s.img", OVT_TCM_FW_NAME, ovt_tcm_vendor_name);
-		retval = request_firmware(&zeroflash_hcd->fw_entry, fwname, tcm_hcd->pdev->dev.parent);
+		retval = request_firmware(&zeroflash_hcd->fw_entry, ovt_tcm_firmware_name, tcm_hcd->pdev->dev.parent);
 		if (retval < 0) {
-			ovt_info(ERR_LOG, "%s:Failed to request %s, so request default fw\n", __func__, fwname);
+#ifdef OVT_DEFAULT_FW_IMAGE_NAME
+			ovt_info(ERR_LOG, "%s:Failed to request %s, so request default fw\n", __func__, ovt_tcm_firmware_name);
 			retval = request_firmware(&zeroflash_hcd->fw_entry,
-				OVT_DEFAULT_FW_IMAGE_NAME,
+				ovt_tcm_default_firmware_name,
 				tcm_hcd->pdev->dev.parent);
 			if (retval < 0) {
 				tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-				ovt_info(ERR_LOG, "%s:Failed to request %s\n", __func__, OVT_DEFAULT_FW_IMAGE_NAME);
+				ovt_info(ERR_LOG, "%s:Failed to request %s\n", __func__, ovt_tcm_default_firmware_name);
 				return retval;
 			} else {
-				ovt_info(INFO_LOG, "%s:Success to request %s\n", __func__, OVT_DEFAULT_FW_IMAGE_NAME);
+				ovt_info(INFO_LOG, "%s:Success to request %s\n", __func__, ovt_tcm_default_firmware_name);
 			}
+#else
+			ovt_info(ERR_LOG, "%s:Failed to request %s\n", __func__, ovt_tcm_firmware_name);
+			tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
+			return retval;
+#endif
 		} else {
-			ovt_info(INFO_LOG, "%s:Success to request %s\n", __func__, fwname);
+			ovt_info(INFO_LOG, "%s:Success to request %s\n", __func__, ovt_tcm_firmware_name);
 		}
 		ovt_info(DEBUG_LOG,
 			"Firmware image size = %d\n",
@@ -1002,13 +1009,14 @@ static int zeroflash_download_app_fw(void)
 static void zeroflash_do_f35_firmware_download(void)
 {
 	int retval;
+	int tp_time = 0;
 	struct rmi_f35_data data;
 	struct ovt_tcm_hcd *tcm_hcd = zeroflash_hcd->tcm_hcd;
 	static unsigned int retry_count;
 	const struct ovt_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
 
 	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
-
+	tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
 	if (tcm_hcd->irq_enabled) {
 		retval = tcm_hcd->enable_irq(tcm_hcd, false, true);
 		if (retval < 0) {
@@ -1077,8 +1085,6 @@ static void zeroflash_do_f35_firmware_download(void)
 	/* perform firmware downloading */
 	retval = zeroflash_download_app_fw();
 	if (retval < 0) {
-        
-		
 		ovt_info(ERR_LOG,
 				"Failed to download application firmware, so reset tp \n");
 		goto exit;
@@ -1088,6 +1094,7 @@ static void zeroflash_do_f35_firmware_download(void)
 
 	ovt_info(INFO_LOG,
 			"End of firmware download\n");
+	tpd_cdev->fw_ready = true;
 
 exit:
 	if (retval < 0) {
@@ -1116,7 +1123,12 @@ exit:
 					"Failed to enable interrupt\n");
 		}
 	}
+	tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+	TPD_DMESG("tp_time OV f35 fw upgrade time:%d.", tp_time);
 	zeroflash_hcd->fw_ready = true;
+	if (tpd_cdev->bbat_test_enter) {
+		complete(&tpd_cdev->bbat_test_completion);
+	}
 	mod_delayed_work(tpd_cdev->tpd_wq, &tpd_cdev->send_cmd_work, msecs_to_jiffies(20));
 	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
 }
@@ -1124,6 +1136,7 @@ exit:
 static void zeroflash_do_romboot_firmware_download(void)
 {
 	int retval;
+	int tp_time = 0;
 	unsigned char *resp_buf = NULL;
 	unsigned int resp_buf_size;
 	unsigned int resp_length;
@@ -1136,6 +1149,7 @@ static void zeroflash_do_romboot_firmware_download(void)
 	ovt_info(INFO_LOG,
 			"Prepare ROMBOOT firmware download\n");
 
+	tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
 	atomic_set(&tcm_hcd->host_downloading, 1);
 	resp_buf = NULL;
 	resp_buf_size = 0;
@@ -1243,11 +1257,16 @@ static void zeroflash_do_romboot_firmware_download(void)
 	} else {
 		ovt_info(INFO_LOG, "%s:Success to switch to bootloader\n", __func__);
 	}
+	tpd_cdev->fw_ready = true;
 
 exit:
-
+	tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+	TPD_DMESG("tp_time OV romboot fw upgrade time:%d.", tp_time);
 	pm_relax(&tcm_hcd->pdev->dev);
 	zeroflash_hcd->fw_ready = true;
+	if (tpd_cdev->bbat_test_enter) {
+		complete(&tpd_cdev->bbat_test_completion);
+	}
 	mod_delayed_work(tpd_cdev->tpd_wq, &tpd_cdev->send_cmd_work, msecs_to_jiffies(20));
 	kfree(resp_buf);
 	ovt_info(DEBUG_LOG, "%s exit!\n", __func__);
@@ -1443,14 +1462,14 @@ static struct ovt_tcm_module_cb zeroflash_module = {
 
 int zeroflash_module_init(void)
 {
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
 
 	return ovt_tcm_add_module(&zeroflash_module, true);
 }
 
 void zeroflash_module_exit(void)
 {
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
 
 	ovt_tcm_add_module(&zeroflash_module, false);
 	wait_for_completion(&zeroflash_remove_complete);

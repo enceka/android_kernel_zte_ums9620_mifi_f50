@@ -89,6 +89,9 @@ static void fts_ts_panel_notifier_callback(enum panel_event_notifier_tag tag,
 int fts_ts_suspend(struct device *dev);
 int fts_ts_resume(struct device *dev);
 extern int tpd_register_fw_class(struct fts_ts_data *data);
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+int fts_read_roi_diffdata(void);
+#endif
 
 int fts_check_cid(struct fts_ts_data *ts_data, u8 id_h)
 {
@@ -1096,13 +1099,16 @@ static int fts_irq_read_report(struct fts_ts_data *ts_data)
         FTS_INFO("unknown touch event(%d)", touch_etype);
         break;
     }
-
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	fts_read_roi_diffdata();
+#endif
     return 0;
 }
 
 static irqreturn_t fts_irq_handler(int irq, void *data)
 {
     struct fts_ts_data *ts_data = fts_data;
+
 #if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
     int ret = 0;
 
@@ -1116,6 +1122,14 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
         }
     }
 #endif
+    if (tpd_cdev->bbat_test_enter) {
+        if (tpd_cdev->bbat_int_test == false) {
+            tpd_cdev->bbat_int_test = true;
+            complete(&tpd_cdev->bbat_test_completion);
+            FTS_INFO("%s tpd int BBAT test success", __func__);
+        }
+        return IRQ_HANDLED;
+    }
 
     ts_data->intr_jiffies = jiffies;
     fts_prc_queue_work(ts_data);
@@ -1827,8 +1841,6 @@ static int fb_notifier_callback(struct notifier_block *self,
 {
     struct fb_event *evdata = data;
     int *blank = NULL;
-    struct fts_ts_data *ts_data = container_of(self, struct fts_ts_data,
-                                  fb_notif);
 
     if (!evdata) {
         FTS_ERROR("evdata is null");
@@ -1852,7 +1864,6 @@ static int fb_notifier_callback(struct notifier_block *self,
 		break;
 	case FB_BLANK_POWERDOWN:
 		if (event == FB_EARLY_EVENT_BLANK) {
-			cancel_work_sync(&fts_data->resume_work);
 			change_tp_state(LCD_OFF);
 		} else if (event == FB_EVENT_BLANK) {
 			FTS_INFO("suspend: event = %lu, not care\n", event);
@@ -2360,10 +2371,7 @@ static int fts_ts_probe(struct spi_device *spi)
     if (ret) {
         FTS_ERROR("Touch Screen(SPI BUS) driver probe fail");
         kfree_safe(ts_data);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_FOCAL)
-		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_FOCAL;
-#endif
+        tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_FOCAL;
         return ret;
     }
 	tpd_register_fw_class(ts_data);

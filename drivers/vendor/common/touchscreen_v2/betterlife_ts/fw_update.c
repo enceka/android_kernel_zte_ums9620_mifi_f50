@@ -1148,10 +1148,7 @@ UPDATE_SECOND_FOR_COB:
 		ret = btl_get_fw_checksum(&fw_checksum);
 		if ((ret < 0) || (fw_checksum != fw_bin_checksum)) {
 			BTL_DEBUG("Read checksum fail fw_checksum = %x\n", fw_checksum);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-			tpd_print_zlog("Read checksum fail fw_checksum = %x\n", fw_checksum);
 			tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 			fw_checksum = 0x00;
 		}
 		BTL_DEBUG("fw_checksum = 0x%x,fw_bin_checksum = 0x%x___\n",
@@ -1278,10 +1275,7 @@ UPDATE_SECOND_FOR_COB:
 			BTL_DEBUG
 			    ("Read checksum fail fw_checksum = %x\n", fw_checksum);
 			fw_checksum = 0x00;
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-			tpd_print_zlog("Read checksum fail fw_checksum = %x\n", fw_checksum);
 			tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		}
 		BTL_DEBUG
 		    ("fw_checksum = 0x%x,fw_bin_checksum = 0x%x___\n", fw_checksum, fw_bin_checksum);
@@ -1349,10 +1343,7 @@ static int btl_update_fw_for_compatible_ctp(unsigned char fileType, unsigned cha
 		ret = btl_get_fw_checksum(&fw_checksum);
 		if ((ret < 0) || (fw_checksum != fw_bin_checksum)) {
 			BTL_DEBUG("Read checksum fail fw_checksum = %x\n", fw_checksum);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-			tpd_print_zlog("Read checksum fail fw_checksum = %x\n", fw_checksum);
 			tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 			fw_checksum = 0x00;
 		}
 		BTL_DEBUG("fw_checksum = 0x%x,fw_bin_checksum = 0x%x___\n", fw_checksum, fw_bin_checksum);
@@ -1525,17 +1516,13 @@ int btl_update_firmware_via_request_firmware(void)
 			ret = btl_update_fw(FIRMWARE_UPDATE, CTP_TYPE, fwData, fw->size);
 			if(ret < 0) {
 				BTL_DEBUG("update firmware fail");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 				tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 			} else {
 				BTL_DEBUG("update firmware success");
 			}
 		}
 	} else {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
 	}
 
 	if (fwData != NULL) {

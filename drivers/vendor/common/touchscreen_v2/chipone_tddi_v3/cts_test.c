@@ -544,7 +544,7 @@ static int validate_comp_cap(struct cts_device *cts_dev,
 #undef SPLIT_LINE_STR
 }
 
-static int wait_fw_to_normal_work(struct cts_device *cts_dev)
+int wait_fw_to_normal_work(struct cts_device *cts_dev)
 {
 	int i = 0;
 	int ret;

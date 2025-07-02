@@ -19,6 +19,8 @@
 #define LTSSM_STATE_L1_IDLE		0x14
 #define LTSSM_STATE_L2_IDLE		0x15
 
+#define SPRD_PCI_EXP_CAP               0x70
+
 /*
  * TODO: The following register only for roc1 PCIe gen2 (pcie0),
  * but it's a common PCIe capability.

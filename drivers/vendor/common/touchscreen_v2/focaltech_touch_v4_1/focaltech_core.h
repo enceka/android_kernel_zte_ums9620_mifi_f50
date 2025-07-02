@@ -125,7 +125,7 @@
 /*
  * For commnication error in PM(deep sleep) state
  */
-#define FTS_PATCH_COMERR_PM                 0
+#define FTS_PATCH_COMERR_PM                 1
 #define FTS_TIMEOUT_COMERR_PM               700
 
 
@@ -266,6 +266,14 @@ struct fts_ts_data {
     struct pinctrl_state *pins_release;
 #endif
 
+#if FTS_PSENSOR_EN
+    struct input_dev *ft6x06_proximity_input_dev;
+    u8 tpd_proximity_flag;
+    u8 tpd_proximity_detect_is_far;
+    unsigned int psensorcall;
+    u8 fts_is_earlysuspend_flag;
+#endif
+
     struct notifier_block fb_notif;
 };
 
@@ -307,7 +315,6 @@ enum _FTS_GESTURE_BMODE {
 * Global variable or extern global variabls/functions
 *****************************************************************************/
 extern struct fts_ts_data *fts_data;
-
 
 /* communication interface */
 int fts_read(u8 *cmd, u32 cmdlen, u8 *data, u32 datalen);
@@ -368,7 +375,7 @@ int fts_enter_normal_fw(void);
 /* Other */
 int fts_reset_proc(int hdelayms);
 int fts_check_cid(struct fts_ts_data *ts_data, u8 id_h);
-int fts_wait_tp_to_valid(void);
+int fts_wait_tp_to_valid(int Step, int timeout);
 void fts_release_all_finger(void);
 void fts_tp_state_recovery(struct fts_ts_data *ts_data);
 int fts_ex_mode_init(struct fts_ts_data *ts_data);
@@ -378,5 +385,12 @@ int fts_ex_mode_recovery(struct fts_ts_data *ts_data);
 void fts_irq_disable(void);
 void fts_irq_enable(void);
 
+#if FTS_PSENSOR_EN
+int get_ps_mode_data(unsigned char *mode_data,  struct fts_ts_data *ts_data);
+int tpd_get_ps_value(struct fts_ts_data *ts_data);
+int tpd_enable_ps(struct fts_ts_data *ts_data, int enable);
+int fts_proximity_init(struct fts_ts_data *ts_data);
+void fts_proximity_recovery(struct fts_ts_data *ts_data);
+#endif
 
 #endif /* __LINUX_FOCALTECH_CORE_H__ */

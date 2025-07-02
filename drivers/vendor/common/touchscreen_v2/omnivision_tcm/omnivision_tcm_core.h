@@ -47,7 +47,7 @@
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0))
 	#include <linux/sched/signal.h>
 #endif
-
+#include <linux/pm_wakeup.h>
 #include "omnivision_config.h"
 #include "ztp_common.h"
 
@@ -57,7 +57,14 @@
 /*zte_add*/
 #define OVT_TCM_FW_NAME	"ovt_tcm_fw_"
 #define OVT_TCM_CSV_NAME	"ovt_tcm_csv_"
+#define TP_PS_INPUT_DEV "proximity_tp"
 extern char ovt_tcm_vendor_name[];
+extern char ovt_tcm_firmware_name[];
+extern char ovt_tcm_criteria_csv_name[];
+#ifdef OVT_DEFAULT_FW_IMAGE_NAME
+extern char ovt_tcm_default_firmware_name[];
+#endif
+extern struct wakeup_source *tp_wakeup;
 extern int get_ovt_tcm_module_info_from_lcd(void);
 struct ovt_tcm_board_data {
 	bool x_flip;
@@ -143,8 +150,9 @@ typedef enum {
 static ovt_debug_level_t ovt_debug_level = INFO_LOG;
 
 #define ovt_info(level, fmt, args...) do { \
-  			if (ovt_debug_level >= level) {\
-  				pr_warn("[ovt_info] " fmt, ##args); \
+  			if ((ovt_debug_level >= level) || tpd_cdev->debug_log_enable) {\
+  				pr_warn("[ZTE_LDD_TP][TPD_OVT_INFO]:(%s, %d):" fmt, __func__, __LINE__, ##args); \
+				tpd_save_last_log("[ZTE_LDD_TP][TPD_OVT_INFO]:(%s, %d):" fmt, __func__, __LINE__, ##args); \
   			} \
   		} while (0)
 
@@ -295,10 +303,14 @@ enum dynamic_config_id {
 	DC_GRIP_SUPPRESSION_ENABLED,
 	DC_ENABLE_THICK_GLOVE,
 	DC_ENABLE_GLOVE,
+	DC_ENABLE_FACE = 0x10,
 	VERTICAL_CMD = 0xC3,
 	HORIZONTAL_CMD = 0xC4,
 	HEADSET_CMD = 0xC9,
 	SENSIBILITY_CMD = 0xCA,
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	DC_ENABLE_KNUCKLE = 0xE4,
+#endif
 };
 
 enum command {
@@ -354,6 +366,16 @@ enum status_code {
 	STATUS_NOT_IMPLEMENTED = 0x0e,
 	STATUS_ERROR = 0x0f,
 	STATUS_INVALID = 0xff,
+};
+
+enum face_status {
+	FACE_FAR_FROM_1_2_3_CLOSE_WHEN_SCREEN_ON = 0x00,
+	FACE_CLOSE_1_SMALL_SIGNAL = 0x01,
+	FACE_CLOSE_2_ENOUGH_SIGNAL = 0x02,
+	FACE_CLOSE_3_ENOUGH_SIGNAL = 0x03,
+	FACE_CLOSE_FROM_1_2_3_CLOSE_WHEN_SCREEN_OFF = 0x04,
+	FACE_FAR_FROM_1_2_3_CLOSE_WHEN_SCREEN_OFF = 0x05,
+	FACE_STATUS_NONE = 0x0f,
 };
 
 enum report_type {
@@ -534,6 +556,10 @@ struct ovt_tcm_hcd {
 	bool wakeup_gesture_enabled;
 	bool enter_gesture; /*zte_add*/
 	bool ovt_tcm_driver_removing;
+#ifdef CONFIG_PM
+	struct completion pm_completion;
+	bool pm_suspend;
+#endif
 	unsigned char sensor_type;
 	unsigned char fb_ready;
 	unsigned char command;
@@ -590,6 +616,11 @@ struct ovt_tcm_hcd {
 	struct delayed_work charger_work;
 	struct workqueue_struct *charger_wq;
 	struct notifier_block charger_notifier;
+#endif
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	int ovt_proximity_enable;
+	int ovt_proximity_state;
+	bool ovt_proximity_suspended;
 #endif
 	int (*reset)(struct ovt_tcm_hcd *tcm_hcd);
 	int (*reset_n_reinit)(struct ovt_tcm_hcd *tcm_hcd, bool hw, bool update_wd);
@@ -818,4 +849,5 @@ static inline unsigned int ceil_div(unsigned int dividend, unsigned int divisor)
 	return (dividend + divisor - 1) / divisor;
 }
 
+extern int ovt_tcm_set_func_face_detect_en_state(unsigned short value);
 #endif

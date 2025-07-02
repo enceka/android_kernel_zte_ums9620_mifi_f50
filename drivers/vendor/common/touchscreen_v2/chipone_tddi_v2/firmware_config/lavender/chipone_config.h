@@ -25,12 +25,15 @@
 
 #define CFG_CTS_ROTATION
 
-#define CFG_CTS_GESTURE
+/* #define CFG_CTS_GESTURE */
 
 #define CFG_USE_DEFAULT_ROWS_COLS
 #ifdef CFG_USE_DEFAULT_ROWS_COLS
 #define CFG_DEFAULT_ROWS    32
 #define CFG_DEFAULT_COLS    18
 #endif
+
+#define CONFIG_CTS_TP_PROXIMITY
+#define HUB_TP_PS_ENABLE 1
 
 #endif /* _CHIPONE_CONFIG_H_ */

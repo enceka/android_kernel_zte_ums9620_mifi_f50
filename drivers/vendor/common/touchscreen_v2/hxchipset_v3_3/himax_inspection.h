@@ -113,8 +113,12 @@ extern u8 HX_EXCP_RESET_ACTIVATE;
 #define ACSII_SPACE     (0x20)
 /* INSOECTION Setting */
 
+#define TEST_BEYOND_MAX_LIMIT		0x0001
+#define TEST_BEYOND_MIN_LIMIT		0x0002
+#define TEST_GT_OPEN				0x0200
+#define TEST_GT_SHORT				0x0400
+
 void himax_inspection_init(void);
-extern int *g_test_item_flag;
 extern int HX_CRITERIA_ITEM;
 extern int *g_test_item_flag;
 extern char *g_himax_inspection_mode[];

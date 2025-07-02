@@ -269,7 +269,7 @@ static int cm_capacity_remap(struct charger_manager *cm, int fuel_cap)
 
 		if (i == cm->desc->cap_remap_table_len - 1 && temp > cm->desc->cap_remap_table[i].hb)
 			cap = DIV_ROUND_CLOSEST((temp - cm->desc->cap_remap_table[i].hb), 100)
-				+ cm->desc->cap_remap_table[i].hcap;
+				+ cm->desc->cap_remap_table[i].hcap * 10;
 
 	}
 

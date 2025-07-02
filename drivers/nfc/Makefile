@@ -19,3 +19,4 @@ obj-$(CONFIG_NFC_S3FWRN5)	+= s3fwrn5/
 obj-$(CONFIG_NFC_ST95HF)	+= st95hf/
 obj-$(CONFIG_NXP_NFC_I2C)	+= pn553/
 obj-$(CONFIG_NFC_ST21NFCJ)      += st54j/
+obj-$(CONFIG_NFC_FM11TAG)	+= fm11tag/

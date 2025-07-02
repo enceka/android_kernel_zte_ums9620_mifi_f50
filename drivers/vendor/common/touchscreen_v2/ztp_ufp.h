@@ -21,8 +21,8 @@ struct ufp_ops {
 };
 
 /* Log define */
-#define UFP_INFO(fmt, arg...)	pr_info("tpd_ufp_info: "fmt"\n", ##arg)
-#define UFP_ERR(fmt, arg...)	pr_err("tpd_ufp_err: "fmt"\n", ##arg)
+#define UFP_INFO(fmt, arg...)	pr_info("[ZTE_LDD_TP][TPD_UFP][INFO]:(%s, %d): "fmt"\n", __func__, __LINE__, ##arg)
+#define UFP_ERR(fmt, arg...)	pr_err("[ZTE_LDD_TP][TPD_UFP][ERROR]:(%s, %d): "fmt"\n", __func__, __LINE__, ##arg)
 
 extern struct ufp_ops ufp_tp_ops;
 

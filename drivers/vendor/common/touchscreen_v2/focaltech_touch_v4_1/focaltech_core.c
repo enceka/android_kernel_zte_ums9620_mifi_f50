@@ -103,7 +103,7 @@ int fts_check_cid(struct fts_ts_data *ts_data, u8 id_h)
 *  Output:
 *  Return: return 0 if tp valid, otherwise return error code
 *****************************************************************************/
-int fts_wait_tp_to_valid(void)
+int fts_wait_tp_to_valid(int Step, int timeout)
 {
     int ret = 0;
     int cnt = 0;
@@ -120,8 +120,8 @@ int fts_wait_tp_to_valid(void)
             FTS_DEBUG("TP Not Ready,ReadData:0x%02x,ret:%d", idh, ret);
 
         cnt++;
-        msleep(INTERVAL_READ_REG_RESUME);
-    } while ((cnt * INTERVAL_READ_REG_RESUME) < TIMEOUT_READ_REG);
+        msleep(Step);
+    } while ((cnt * Step) < timeout);
 
     return -EIO;
 }
@@ -137,13 +137,16 @@ void fts_tp_state_recovery(struct fts_ts_data *ts_data)
 {
     FTS_FUNC_ENTER();
     /* wait tp stable */
-    fts_wait_tp_to_valid();
+    fts_wait_tp_to_valid(INTERVAL_READ_REG_RESUME, TIMEOUT_READ_REG);
     /* recover TP charger state 0x8B */
     /* recover TP glove state 0xC0 */
     /* recover TP cover state 0xC1 */
     fts_ex_mode_recovery(ts_data);
     /* recover TP gesture state 0xD0 */
     fts_gesture_recovery(ts_data);
+#if FTS_PSENSOR_EN
+    fts_proximity_recovery(ts_data);
+#endif
     FTS_FUNC_EXIT();
 }
 
@@ -181,11 +184,13 @@ void fts_irq_disable(void)
 void fts_irq_enable(void)
 {
     unsigned long irqflags = 0;
+    struct irq_desc *desc = irq_to_desc(fts_data->irq);
 
     FTS_FUNC_ENTER();
+    FTS_DEBUG("irq_depth:%d\n", desc->depth);
     spin_lock_irqsave(&fts_data->irq_lock, irqflags);
 
-    if (fts_data->irq_disabled) {
+    if ((desc->depth == 1) || (fts_data->irq_disabled)) {
         enable_irq(fts_data->irq);
         fts_data->irq_disabled = false;
     }
@@ -342,43 +347,48 @@ static int fts_read_bootid(struct fts_ts_data *ts_data, u8 *id)
 *****************************************************************************/
 static int fts_get_ic_information(struct fts_ts_data *ts_data)
 {
-    int ret = 0;
-    int cnt = 0;
-    u8 chip_id[2] = { 0 };
+	int ret = 0;
+	int cnt = 0, i = 0;
+	u8 chip_id[2] = { 0 };
 
-    ts_data->ic_info.is_incell = FTS_CHIP_IDC;
-    ts_data->ic_info.hid_supported = FTS_HID_SUPPORTTED;
+	ts_data->ic_info.is_incell = FTS_CHIP_IDC;
+	ts_data->ic_info.hid_supported = FTS_HID_SUPPORTTED;
 
-    for (cnt = 0; cnt < 3; cnt++) {
-        fts_reset_proc(0);
-        mdelay(FTS_CMD_START_DELAY + (cnt * 8));
+	do {
+		for (i = 0; i < 10; i++) {
+			fts_reset_proc(0);
+			mdelay(FTS_CMD_START_DELAY + (i * 2));
+			ret = fts_read_bootid(ts_data, &chip_id[0]);
+			if (ret < 0) {
+				FTS_DEBUG("read boot id fail,retry:%d", i);
+				continue;
+			}
+			ret = fts_get_chip_types(ts_data, chip_id[0], chip_id[1], INVALID);
+			if (ret < 0) {
+				FTS_DEBUG("can't get ic informaton,retry:%d", i);
+				continue;
+			}
+			break;
+		}
+		if (i >= 10) {
+			FTS_ERROR("get chipid fail,retry: %d", cnt);
+		} else {
+			break;
+		}
+		cnt++;
+		msleep(30);
+	} while (cnt < 3);
+	if (cnt >= 3) {
+		FTS_ERROR("get ic informaton fail");
+		tpd_zlog_record_notify(TP_PROBE_ERROR_NO);
+		return -EIO;
+	}
 
-        ret = fts_read_bootid(ts_data, &chip_id[0]);
-        if (ret < 0) {
-            FTS_DEBUG("read boot id fail,retry:%d", cnt);
-            continue;
-        }
+	FTS_INFO("get ic information, chip id = 0x%02x%02x(cid type=0x%x)",
+		 ts_data->ic_info.ids.chip_idh, ts_data->ic_info.ids.chip_idl,
+		 ts_data->ic_info.cid.type);
 
-        ret = fts_get_chip_types(ts_data, chip_id[0], chip_id[1], INVALID);
-        if (ret < 0) {
-            FTS_DEBUG("can't get ic informaton,retry:%d", cnt);
-            continue;
-        }
-
-        break;
-    }
-
-    if (cnt >= 3) {
-        FTS_ERROR("get ic informaton fail");
-        return -EIO;
-    }
-
-
-    FTS_INFO("get ic information, chip id = 0x%02x%02x(cid type=0x%x)",
-             ts_data->ic_info.ids.chip_idh, ts_data->ic_info.ids.chip_idl,
-             ts_data->ic_info.cid.type);
-
-    return ret;
+	return 0;
 }
 
 /*****************************************************************************
@@ -817,6 +827,28 @@ static int fts_read_parse_touchdata(struct fts_ts_data *ts_data, u8 *touch_buf)
     memset(touch_buf, 0xFF, FTS_MAX_TOUCH_BUF);
     ts_data->ta_size = ts_data->touch_size;
 
+#if FTS_PSENSOR_EN
+	if (ts_data->tpd_proximity_flag == 1) {
+		unsigned char ps_mode = 0;
+		ret = get_ps_mode_data(&ps_mode, ts_data);
+		if (ps_mode == 0x01 && ts_data->tpd_proximity_detect_is_far) {
+			ts_data->tpd_proximity_detect_is_far = 0;  /* 0-->near ; */
+			change_psensor_state(PSENSOR_BEGIN_SUSPEND);
+			FTS_INFO("proximity report: NEAR event\n");
+			input_report_abs(ts_data->ft6x06_proximity_input_dev, ABS_DISTANCE, 0);
+			input_sync(ts_data->ft6x06_proximity_input_dev);
+		} else if (ps_mode == 0x00 && !ts_data->tpd_proximity_detect_is_far) {
+			ts_data->tpd_proximity_detect_is_far = 1;  /* 1--> far away */
+			FTS_INFO("proximity report: FAR event\n");
+			input_report_abs(ts_data->ft6x06_proximity_input_dev, ABS_DISTANCE, 1);
+			input_sync(ts_data->ft6x06_proximity_input_dev);
+		}
+		if (ps_mode == 0x01) {
+			return TOUCH_IGNORE;
+		}
+	}
+#endif	/*FTS_PSENSOR_EN*/
+
     /*read touch data*/
     if (ts_data->bus_type == BUS_TYPE_SPI)
         ret = fts_read_touchdata_spi(ts_data, touch_buf);
@@ -1118,6 +1150,8 @@ static int fts_irq_read_report(struct fts_ts_data *ts_data)
 static irqreturn_t fts_irq_handler(int irq, void *data)
 {
     struct fts_ts_data *ts_data = fts_data;
+
+
 #if IS_ENABLED(CONFIG_PM) && FTS_PATCH_COMERR_PM
     int ret = 0;
 
@@ -1132,6 +1166,14 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
     }
 #endif
 
+    if (tpd_cdev->bbat_test_enter) {
+        if (tpd_cdev->bbat_int_test == false) {
+            tpd_cdev->bbat_int_test = true;
+            complete(&tpd_cdev->bbat_test_completion);
+            FTS_INFO("%s tpd int BBAT test success", __func__);
+        }
+        return IRQ_HANDLED;
+    }
 
     ts_data->intr_jiffies = jiffies;
     fts_prc_queue_work(ts_data);
@@ -1775,6 +1817,15 @@ int fts_ts_suspend(struct device *dev)
     struct fts_ts_data *ts_data = fts_data;
 
     FTS_FUNC_ENTER();
+
+#if FTS_PSENSOR_EN
+	if(ts_data->tpd_proximity_flag == 1)
+	{
+		FTS_INFO( "tpd_proximity_flag return \n");
+		return 0;
+	}
+#endif	/*FTS_PSENSOR_EN*/
+
     if (ts_data->suspended) {
         FTS_INFO("Already in suspend state");
         return 0;
@@ -1785,9 +1836,7 @@ int fts_ts_suspend(struct device *dev)
         return 0;
     }
 
-
     fts_esdcheck_suspend(ts_data);
-	ts_data->gesture_support = tpd_cdev->b_gesture_enable;
 
     if (ts_data->gesture_support) {
         fts_gesture_suspend(ts_data);
@@ -1813,6 +1862,11 @@ int fts_ts_suspend(struct device *dev)
 #endif
     fts_release_all_finger();
     ts_data->suspended = true;
+
+#if FTS_PSENSOR_EN
+	ts_data->fts_is_earlysuspend_flag = 1;
+#endif	/*FTS_PSENSOR_EN*/
+
     FTS_FUNC_EXIT();
     return 0;
 }
@@ -1822,6 +1876,18 @@ int fts_ts_resume(struct device *dev)
     struct fts_ts_data *ts_data = fts_data;
 
     FTS_FUNC_ENTER();
+
+#if FTS_PSENSOR_EN
+	if((ts_data->tpd_proximity_flag == 1) && (ts_data->fts_is_earlysuspend_flag == 0))
+	{
+		FTS_INFO( "tpd_proximity_flag return\n");
+		tpd_enable_ps(ts_data, 1);
+		change_psensor_state(PSENSOR_BEGIN_RESUME);
+		msleep(50);
+		return 0;
+	}
+#endif	/*FTS_PSENSOR_EN*/
+
     if (!ts_data->suspended) {
         FTS_DEBUG("Already in awake state");
         return 0;
@@ -1837,9 +1903,15 @@ int fts_ts_resume(struct device *dev)
 #endif
         fts_reset_proc(200);
     }
-    fts_enter_normal_fw();
 
-    fts_wait_tp_to_valid();
+#if FTS_THREE_IN_ONE
+    FTS_DEBUG("You can save time by moving this function to LCD resume process after CMD 11.");
+    fts_enter_normal_fw();
+#else
+    fts_enter_normal_fw();
+#endif
+
+    fts_wait_tp_to_valid(INTERVAL_READ_REG_RESUME, TIMEOUT_READ_REG);
     fts_ex_mode_recovery(ts_data);
 
     fts_esdcheck_resume(ts_data);
@@ -1849,6 +1921,16 @@ int fts_ts_resume(struct device *dev)
     } else {
         fts_irq_enable();
     }
+
+#if FTS_PSENSOR_EN
+	ts_data->fts_is_earlysuspend_flag = 0;
+	if ((ts_data->psensorcall > 0)) {
+		FTS_INFO("restore psensor status: %d\n", ts_data->psensorcall);
+		tpd_enable_ps(ts_data, ts_data->psensorcall);
+		ts_data->psensorcall = 0;
+		ts_data->tpd_proximity_detect_is_far = 1;
+	}
+#endif	/*FTS_PSENSOR_EN*/
 
     FTS_FUNC_EXIT();
     return 0;
@@ -2047,6 +2129,14 @@ int fts_ts_probe_entry(struct fts_ts_data *ts_data)
         goto err_gpio_config;
     }
 
+#if FTS_PSENSOR_EN
+	if (fts_proximity_init(ts_data) != 0) {
+		FTS_ERROR("fts_psensor_init failed!");
+		FTS_FUNC_EXIT();
+		return 0;
+	}
+#endif
+
 #if FTS_POWER_SOURCE_CUST_EN
     ret = fts_power_source_init(ts_data);
     if (ret) {
@@ -2151,10 +2241,7 @@ err_bus_init:
     kfree_safe(ts_data->bus_tx_buf);
     kfree_safe(ts_data->bus_rx_buf);
     kfree_safe(ts_data->pdata);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_FOCAL)
-		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_FOCAL;
-#endif
+    tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_FOCAL;
     FTS_FUNC_EXIT();
     return ret;
 }

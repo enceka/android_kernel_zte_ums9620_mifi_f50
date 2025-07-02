@@ -17,11 +17,27 @@
 #define __tlsc6x_main_h__
 
 #include "tlsc6x_config.h"
+#include "ztp_common.h"
 
 #define CHSC_AUTO_UPD_FNAME	"chsc_ctp_fw_"
-#define tlsc_info(x...) pr_notice("[tlsc] " x)
-#define tlsc_err(x...) pr_err("[tlsc][error] " x)
-#define TLSC_FUNC_ENTER() pr_notice("[tlsc]%s: Enter\n", __func__)
+#define tlsc_info(x...) \
+	do { \
+		pr_info("[ZTE_LDD_TP][TPD_TLSC] " x);\
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_TLSC] " x);\
+	} while (0)
+
+#define tlsc_err(x...) \
+	do { \
+		pr_err("[ZTE_LDD_TP][TPD_TLSC][error] " x);\
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_TLSC][error] " x);\
+	} while (0)
+
+#define TLSC_FUNC_ENTER() \
+	do { \
+		pr_info("[ZTE_LDD_TP][TPD_TLSC]%s: Enter\n", __func__);\
+		tpd_save_last_log("[ZTE_LDD_TP][TPD_TLSC]%s: Enter\n", __func__);\
+	} while (0)
+
 struct tlsc6x_platform_data {
 	u32 irq_gpio_number;
 	u32 reset_gpio_number;
@@ -103,6 +119,7 @@ struct tlsc6x_stest_crtra {
 };
 
 extern struct tlsc6x_data *g_tp_drvdata;
+extern struct i2c_client *g_tlsc6x_client;
 extern struct mutex i2c_rw_access;
 
 void tlsc_irq_enable(void);
@@ -132,6 +149,8 @@ extern int tlsc6x_i2c_read(struct i2c_client *client, char *writebuf, int writel
 extern int tlsc6x_i2c_write(struct i2c_client *client, char *writebuf, int writelen);
 extern int tlsc6x_i2c_read_sub(struct i2c_client *client, char *writebuf, int writelen, char *readbuf, int readlen);
 extern int tlsc6x_i2c_write_sub(struct i2c_client *client, char *writebuf, int writelen);
+extern int tlsc6x_write_bytes_u16addr_sub(struct i2c_client *client, u16 addr, u8 *txbuf, u16 len);
+extern int tlsc6x_read_bytes_u16addr_sub(struct i2c_client *client, u16 addr, u8 *rxbuf, u16 len);
 #ifdef TLSC_TP_PROC_SELF_TEST
 extern int tlsc6x_chip_self_test(void);
 extern int tlsc6x_chip_self_test_sub(void);
@@ -140,6 +159,7 @@ extern int tlsc6x_chip_self_test_sub(void);
 #if (defined TPD_AUTO_UPGRADE_PATH) || (defined TLSC_APK_DEBUG)
 extern int tlsc6x_proc_cfg_update(u8 *dir, int behave);
 #endif
+extern void tlsc6x_tpd_reset(void);
 extern void tlsc6x_tpd_reset_force(void);
 extern int tlsc6x_fif_write(char *fname, u8 *pdata, u16 len);
 extern int tlsc6x_get_tp_vendor_info(void);

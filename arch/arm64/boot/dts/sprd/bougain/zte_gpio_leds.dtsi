@@ -1,0 +1,47 @@
+/ {
+	gpio-leds {
+		compatible = "gpio-leds";
+		pwr_green {
+			label = "pwr_green";
+			gpios = <&ap_gpio 116 GPIO_ACTIVE_HIGH>;
+			retain-state-suspended;
+			default-state = "off";
+		};
+		wifi_white {
+			label = "wifi_white";
+			gpios = <&ap_gpio 192 GPIO_ACTIVE_HIGH>;
+			retain-state-suspended;
+			default-state = "off";
+		};
+		wifi_blue {
+			label = "wifi_blue";
+			gpios = <&ap_gpio 194 GPIO_ACTIVE_HIGH>;
+			retain-state-suspended;
+			default-state = "off";
+		};
+		net_blue {
+			label = "net_blue";
+			gpios = <&ap_gpio 117 GPIO_ACTIVE_HIGH>;
+			retain-state-suspended;
+			default-state = "off";
+		};
+		net_green {
+			label = "net_green";
+			gpios = <&ap_gpio 118 GPIO_ACTIVE_HIGH>;
+			retain-state-suspended;
+			default-state = "off";
+		};
+		net_white {
+			label = "net_white";
+			gpios = <&ap_gpio 119 GPIO_ACTIVE_HIGH>;
+			retain-state-suspended;
+			default-state = "off";
+		};
+		net_red {
+			label = "net_red";
+			gpios = <&ap_gpio 193 GPIO_ACTIVE_HIGH>;
+			retain-state-suspended;
+			default-state = "off";
+		};
+	};
+};

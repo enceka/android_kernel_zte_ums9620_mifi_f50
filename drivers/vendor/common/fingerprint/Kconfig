@@ -8,6 +8,12 @@ config ZTE_PLATFORM_FINGERPRINT
        ---help---
        ZTE Fingerprint Driver
 
+config ZTE_FP_DEBUG
+       tristate "ZTE Fingerprint"
+       default n
+       ---help---
+       ZTE Fp Debug
+
 ######### Goodix #########
 source "drivers/vendor/common/fingerprint/goodix/Kconfig"
 

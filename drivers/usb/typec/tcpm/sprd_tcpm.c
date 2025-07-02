@@ -2643,8 +2643,8 @@ static unsigned int sprd_tcpm_pd_select_pps_apdo(struct sprd_tcpm_port *port)
 			 * PPS APDO. Again skip the first sink PDO as this will
 			 * always be 5V 3A.
 			 */
-			for (j = 1; j < port->nr_snk_pdo; j++) {
-				pdo = port->snk_pdo[j];
+			for (j = 1; j < port->nr_snk_default_pdo; j++) {
+				pdo = port->snk_default_pdo[j];
 
 				switch (sprd_pdo_type(pdo)) {
 				case SPRD_PDO_TYPE_APDO:
@@ -2689,7 +2689,7 @@ static unsigned int sprd_tcpm_pd_select_pps_apdo(struct sprd_tcpm_port *port)
 
 	if (src_pdo) {
 		src = port->source_caps[src_pdo];
-		snk = port->snk_pdo[snk_pdo];
+		snk = port->snk_default_pdo[snk_pdo];
 
 		port->pps_data.req_min_volt = max(sprd_pdo_pps_apdo_min_voltage(src),
 						  sprd_pdo_pps_apdo_min_voltage(snk));

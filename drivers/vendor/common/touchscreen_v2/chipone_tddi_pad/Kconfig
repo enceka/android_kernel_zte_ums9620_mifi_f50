@@ -1,0 +1,6 @@
+config TOUCHSCREEN_CHIPONE_PAD
+	tristate "Chipone TDDI touchscreen for 9951Re"
+	default n
+	help
+	  Say y here if you have chipone TDDI 9951R touch panel.
+	  If unsure, say N.

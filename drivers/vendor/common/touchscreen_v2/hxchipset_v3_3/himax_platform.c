@@ -196,9 +196,9 @@ int himax_parse_dt(struct himax_ts_data *ts, struct himax_platform_data *pdata)
 			coords, coords_size);
 	if (ret == 0) {
 		pdata->abs_x_min = coords[0];
-		pdata->abs_x_max = (coords[1] - 1);
+		pdata->abs_x_max = coords[1];
 		pdata->abs_y_min = coords[2];
-		pdata->abs_y_max = (coords[3] - 1);
+		pdata->abs_y_max = coords[3];
 		I(" DT-%s:panel-coords = %d, %d, %d, %d\n", __func__,
 				pdata->abs_x_min,
 				pdata->abs_x_max,
@@ -408,6 +408,7 @@ static int himax_spi_read(uint8_t *cmd, uint8_t cmd_len, uint8_t *buf,
 	if (retry == HIMAX_BUS_RETRY_TIMES) {
 		E("%s: SPI read error retry over %d\n",
 			__func__, HIMAX_BUS_RETRY_TIMES);
+		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
 		result = -EIO;
 		goto END;
 	} else {
@@ -523,7 +524,6 @@ void himax_int_enable(int enable)
 	int irqnum = ts->hx_irq;
 
 	spin_lock_irqsave(&ts->irq_lock, irqflags);
-	I("%s: Entering! irqnum = %d\n", __func__, irqnum);
 	if (enable == 1 && atomic_read(&ts->irq_state) == 0) {
 		atomic_set(&ts->irq_state, 1);
 		enable_irq(irqnum);
@@ -534,7 +534,6 @@ void himax_int_enable(int enable)
 		hx_s_ts->irq_enabled = 0;
 	}
 
-	I("enable = %d\n", enable);
 	spin_unlock_irqrestore(&ts->irq_lock, irqflags);
 }
 EXPORT_SYMBOL(himax_int_enable);
@@ -1084,7 +1083,7 @@ int fb_notifier_callback(struct notifier_block *self,
 				&ts->ts_int_work,
 				msecs_to_jiffies(DELAY_TIME));
 #else
-				himax_common_resume(ts->dev);
+				change_tp_state(LCD_ON);
 #endif
 			break;
 
@@ -1092,7 +1091,7 @@ int fb_notifier_callback(struct notifier_block *self,
 		case FB_BLANK_HSYNC_SUSPEND:
 		case FB_BLANK_VSYNC_SUSPEND:
 		case FB_BLANK_NORMAL:
-			himax_common_suspend(ts->dev);
+			change_tp_state(LCD_OFF);
 			break;
 		}
 	}
@@ -1323,7 +1322,7 @@ err_alloc_data_failed:
 	kfree(g_xfer_data);
 	g_xfer_data = NULL;
 err_alloc_g_xfer_data_failed:
-
+	tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_HIMAX;
 	return ret;
 }
 
@@ -1409,7 +1408,7 @@ int himax_common_init(void)
 {
 	int ret = 0;
 
-	I("Himax common touch panel driver init\n");
+	I("Himax common touch panel driver init 20231219\n");
 	D("Himax check double loading\n");
 	if (g_mmi_refcnt++ > 0) {
 		I("Himax driver has been loaded! ignoring....\n");

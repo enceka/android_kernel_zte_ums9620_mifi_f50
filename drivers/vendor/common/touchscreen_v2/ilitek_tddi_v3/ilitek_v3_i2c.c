@@ -168,9 +168,7 @@ static int ilitek_i2c_write(void *buf, int len)
 			ret = 0;
 			goto out;
 		}
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
-#endif
 		ILI_ERR("i2c write error, ret = %d\n", ret);
 	}
 
@@ -193,9 +191,7 @@ static int ilitek_i2c_read(void *buf, int len)
 			ret = 0;
 			goto out;
 		}
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
-#endif
 		ILI_ERR("i2c read error, ret = %d\n", ret);
 	}
 

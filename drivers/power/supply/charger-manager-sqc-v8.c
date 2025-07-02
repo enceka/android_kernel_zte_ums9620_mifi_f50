@@ -295,7 +295,7 @@ static int cm_capacity_remap(struct charger_manager *cm, int fuel_cap)
 
 		if (i == cm->desc->cap_remap_table_len - 1 && temp > cm->desc->cap_remap_table[i].hb)
 			cap = DIV_ROUND_CLOSEST((temp - cm->desc->cap_remap_table[i].hb), 100)
-				+ cm->desc->cap_remap_table[i].hcap;
+				+ cm->desc->cap_remap_table[i].hcap * 10;
 
 	}
 
@@ -7270,24 +7270,28 @@ static int cm_get_bat_info(struct charger_manager *cm)
 
 static void cm_shutdown_handle(struct charger_manager *cm)
 {
-	switch (cm->desc->uvlo_shutdown_mode) {
-	case CM_SHUTDOWN_MODE_ORDERLY:
-		orderly_poweroff(true);
-		break;
-
-	case CM_SHUTDOWN_MODE_KERNEL:
+	if (is_charger_mode) {
 		kernel_power_off();
-		break;
+	} else {
+		switch (cm->desc->uvlo_shutdown_mode) {
+		case CM_SHUTDOWN_MODE_ORDERLY:
+			orderly_poweroff(true);
+			break;
 
-	case CM_SHUTDOWN_MODE_ANDROID:
-		cancel_delayed_work_sync(&cm->cap_update_work);
-		cm->desc->cap = 0;
-		power_supply_changed(cm->charger_psy);
-		break;
+		case CM_SHUTDOWN_MODE_KERNEL:
+			kernel_power_off();
+			break;
 
-	default:
-		dev_warn(cm->dev, "Incorrect uvlo_shutdown_mode (%d)\n",
-			 cm->desc->uvlo_shutdown_mode);
+		case CM_SHUTDOWN_MODE_ANDROID:
+			cancel_delayed_work_sync(&cm->cap_update_work);
+			cm->desc->cap = 0;
+			power_supply_changed(cm->charger_psy);
+			break;
+
+		default:
+			dev_warn(cm->dev, "Incorrect uvlo_shutdown_mode (%d)\n",
+				 cm->desc->uvlo_shutdown_mode);
+		}
 	}
 }
 
@@ -7974,7 +7978,7 @@ static int charger_manager_probe(struct platform_device *pdev)
 	struct power_supply *psy_hardware_chg = NULL;
 	const char *psy_hardware_name;
 
-	pr_info("%s enter\n", __func__);
+	pr_info("%s sqc v8 enter\n", __func__);
 	ret = of_property_read_string(np, "cm-hardware-psy", &psy_hardware_name);
 	if (ret) {
 		pr_info("No cm-hardware-psy config, ret=%d\n", ret);

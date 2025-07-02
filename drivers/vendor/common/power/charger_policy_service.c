@@ -1416,6 +1416,9 @@ bool charger_policy_get_status(void)
 {
 	int status = 0, rc = 0;
 
+	if (zte_poweroff_charging_status())
+		return false;
+
 	rc = charger_policy_get_prop_by_name("policy", POWER_SUPPLY_PROP_AUTHENTIC, &status);
 
 	return (rc < 0) ? (false) : (!!status);
@@ -1436,13 +1439,15 @@ static int policy_psy_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_AUTHENTIC:
-		if (((policy_info->demo_enable)
-						&& charger_policy_check_usb_present(policy_info))
-				|| ((policy_info->overtime_enable)
-						&& (policy_info->overtime_status)))
-			pval->intval = true;
-		else
+		if (charger_policy_check_usb_present(policy_info)) {
+			if ((policy_info->demo_enable) || ((policy_info->overtime_enable)
+					&& (policy_info->overtime_status)))
+				pval->intval = true;
+			else
+				pval->intval = false;
+		} else {
 			pval->intval = false;
+		}
 		break;
 	case POWER_SUPPLY_PROP_ONLINE:
 		pval->intval = policy_info->policy_status;

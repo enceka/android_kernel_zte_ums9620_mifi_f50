@@ -405,7 +405,6 @@ struct chipone_ts_data {
     struct work_struct ts_resume_work;
 #ifdef CONFIG_CTS_CHARGER_DETECT
     void *charger_detect_data;
-	struct delayed_work charger_work;
 #endif
 
 #ifdef CONFIG_CTS_EARJACK_DETECT
@@ -807,14 +806,12 @@ static inline int cts_is_glove_enabled(const struct cts_device *cts_dev)
 #endif
 
 #ifdef CONFIG_CTS_CHARGER_DETECT
-/* extern bool cts_is_charger_exist(struct cts_device *cts_dev);
-extern int cts_set_dev_charger_attached(struct cts_device *cts_dev,
-        bool attached); */
 extern bool cts_is_charger_exist(struct cts_device *cts_dev);
 extern int cts_charger_plugin(struct cts_device *cts_dev);
 extern int cts_charger_plugout(struct cts_device *cts_dev);
 #else /* CONFIG_CTS_CHARGER_DETECT */
-/* static inline bool cts_is_charger_exist(struct cts_device *cts_dev)
+
+static inline bool cts_is_charger_exist(struct cts_device *cts_dev)
 {
     return false;
 }
@@ -823,21 +820,6 @@ static inline int cts_set_dev_charger_attached(struct cts_device *cts_dev,
         bool attached)
 {
     return 0;
-} */
-
-static inline bool cts_is_charger_exist(struct cts_device *cts_dev)
-{
-	return false;
-}
-
-static inline int cts_charger_plugin(struct cts_device *cts_dev)
-{
-	return 0;
-}
-
-static inline int cts_charger_plugout(struct cts_device *cts_dev)
-{
-	return 0;
 }
 #endif /* CONFIG_CTS_CHARGER_DETECT */
 
@@ -895,4 +877,7 @@ extern bool cts_is_fwid_valid(u16 fwid);
 extern int cts_reset_device(struct cts_device *cts_dev);
 
 extern int kstrtobool(const char *s, bool *res);
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+int cts_read_roi_diffdata(void);
+#endif
 #endif /* CTS_CORE_H */

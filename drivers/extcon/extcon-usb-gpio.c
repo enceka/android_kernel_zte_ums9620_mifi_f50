@@ -21,6 +21,9 @@
 #include <linux/pinctrl/consumer.h>
 
 #define USB_GPIO_DEBOUNCE_MS	20	/* ms */
+#ifdef ZTE_FEATURE_PV_AR
+extern int lpm_flag;
+#endif
 
 struct usb_extcon_info {
 	struct device *dev;
@@ -238,6 +241,12 @@ static int usb_extcon_resume(struct device *dev)
 {
 	struct usb_extcon_info *info = dev_get_drvdata(dev);
 	int ret = 0;
+	#ifdef ZTE_FEATURE_PV_AR
+	if (lpm_flag) {
+		pr_err("lpm_flag=%d force cancel resume\n", lpm_flag, __func__);
+		return 0;
+	}
+	#endif
 
 	if (!device_may_wakeup(dev))
 		pinctrl_pm_select_default_state(dev);

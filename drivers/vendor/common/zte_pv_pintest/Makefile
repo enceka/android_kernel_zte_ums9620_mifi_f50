@@ -1,0 +1,1 @@
+obj-$(CONFIG_ZTE_PV_PIN_TEST)		+= zte_pv_pintest.o

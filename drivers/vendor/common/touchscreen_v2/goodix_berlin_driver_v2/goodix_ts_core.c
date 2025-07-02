@@ -1685,9 +1685,7 @@ static void goodix_ts_esd_work(struct work_struct *work)
 
 	ret = hw_ops->esd_check(cd);
 	if (ret) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
 		ts_err("esd check failed");
 		goodix_ts_power_off(cd);
 		usleep_range(5000, 5100);
@@ -2313,10 +2311,7 @@ static int goodix_later_init_thread(void *data)
 	/* setp 2: init fw struct add try do fw upgrade */
 	ret = goodix_fw_update_init(cd);
 	if (ret) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("fw update init fail");
 		tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
 		ts_err("failed init fw update module");
 		goto err_out;
 	}
@@ -2324,10 +2319,7 @@ static int goodix_later_init_thread(void *data)
 	ts_info("update flag: 0x%X", update_flag);
 	ret = goodix_do_fw_update(cd->ic_configs[CONFIG_TYPE_NORMAL], update_flag);
 	if (ret) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("failed do fw update");
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 		ts_err("failed do fw update");
 	}
 	/* setp3: get fw version and ic_info
@@ -2337,10 +2329,7 @@ static int goodix_later_init_thread(void *data)
 	 */
 	ret = hw_ops->read_version(cd, &cd->fw_version);
 	if (ret) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("invalid fw version, abort");
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 		ts_err("invalid fw version, abort");
 		goto uninit_fw;
 	}
@@ -2358,10 +2347,7 @@ static int goodix_later_init_thread(void *data)
 	/* init other resources */
 	ret = goodix_ts_stage2_init(cd);
 	if (ret) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_print_zlog("stage2 init failed");
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 		ts_err("stage2 init failed");
 		goto uninit_fw;
 	}
@@ -2544,10 +2530,7 @@ err_out:
 	core_module_prob_sate = CORE_MODULE_PROB_FAILED;
 	goodix_ts_touch_power_exit(core_data);
 	ts_err("goodix_ts_core failed, ret:%d", ret);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_GOODIX)
-		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_GOODIX;
-#endif
+	tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_GOODIX;
 	return ret;
 }
 

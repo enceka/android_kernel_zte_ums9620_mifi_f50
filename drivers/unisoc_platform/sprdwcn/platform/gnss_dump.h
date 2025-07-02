@@ -98,5 +98,5 @@ u32 gnss_get_clk_gate_en(void);
 #define CTL_BASE_AON_CLOCK  0x40844200
 #define CTL_BASE_AON_CLOCK_SIZE  0x144
 #endif
-int gnss_dump_mem(char flag);
+int gnss_dump_mem(enum wcn_source_type type, char flag);
 #endif

@@ -424,10 +424,7 @@ static int semi_touch_check_cfg_update(unsigned char *parray, unsigned int cfg_s
 		} else {
 			ret = -SEMI_DRV_ERR_CHECKSUM;
 			kernel_log_e("firmware config checksum error\n");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-			tpd_print_zlog("semi_touch_check_cfg_update checksum error\n");
 			tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		}
 	}
 
@@ -470,10 +467,7 @@ int semi_touch_check_boot_update(unsigned char *pdata, unsigned int len, unsigne
 		} else {
 			ret = -SEMI_DRV_ERR_CHECKSUM;
 			kernel_log_e("firmware boot checksum error\n");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-			tpd_print_zlog("semi_touch_check_boot_update checksum error\n");
 			tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		}
 	}
 
@@ -555,10 +549,8 @@ int semi_touch_check_and_update(const unsigned char *udp, unsigned int len)
 	if ((st_dev.vid_pid != 0) && (st_dev.vid_pid != 0xffffffff)) {
 		st_dev.fw_updating = true;
 		ret = semi_touch_update_updfile(udp, len, bootCheckOk ? 0 : 1);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		if (ret < 0)
 			tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 		st_dev.fw_updating = false;
 		check_return_if_fail(ret, NULL);
 	} else {		/* we don't know what kind if product it is */
@@ -609,9 +601,7 @@ int semi_touch_online_update_check(char *file_path)
 
 	ret = request_firmware(&fw, file_path, &st_dev.client->dev);
 	if (ret != SEMI_DRV_ERR_OK) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
 		goto fw_update_exit;
 	}
 	if (fw != NULL) {

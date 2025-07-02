@@ -1,0 +1,22 @@
+/*
+ * this file is ued to change sprd dtsi which can't be changed by overlay
+ * such as /delete-node/ /delete-property/ and alises
+ */
+
+#include "zte_charger_bougain.dtsi"
+#include "zte_audio_bougain.dtsi"
+#include "zte_camera_bougain.dtsi"
+
+&reserved_memory {
+	/delete-node/ dptx_hdcp@fff10000;
+};
+
+&sdio1 {
+	status = "disabled";
+	non-removable;
+};
+
+&sdio0 {
+	status = "disabled";
+	non-removable;
+};

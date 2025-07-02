@@ -236,13 +236,11 @@ void ili_irq_disable(void)
 		goto out;
 
 	if (!ilits->irq_num) {
-		ILI_ERR("gpio_to_irq (%d) is incorrect\n", ilits->irq_num);
 		goto out;
 	}
 
 	disable_irq_nosync(ilits->irq_num);
 	atomic_set(&ilits->irq_stat, DISABLE);
-	ILI_DBG("Disable irq success\n");
 
 out:
 	spin_unlock_irqrestore(&ilits->irq_spin, flag);
@@ -258,13 +256,11 @@ void ili_irq_enable(void)
 		goto out;
 
 	if (!ilits->irq_num) {
-		ILI_ERR("gpio_to_irq (%d) is incorrect\n", ilits->irq_num);
 		goto out;
 	}
 
 	enable_irq(ilits->irq_num);
 	atomic_set(&ilits->irq_stat, ENABLE);
-	ILI_DBG("Enable irq success\n");
 
 out:
 	spin_unlock_irqrestore(&ilits->irq_spin, flag);
@@ -574,10 +570,7 @@ static int ilitek_plat_probe(void)
 	if (ili_tddi_init() < 0) {
 		ILI_ERR("ILITEK Driver probe failed\n");
 		ili_dev_remove(DISABLE);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_ILITEK)
 		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_ILITEK;
-#endif
 		return -ENODEV;
 	}
 	ili_irq_register(ilits->irq_tirgger_type);

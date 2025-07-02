@@ -96,13 +96,15 @@ const short rawdata_max[] = {
     9676,11349,11237,11046,10977,10865,10759,10756,10824,10834,10803,10899,10957,11005,11149,9650,
 };
 
-struct factory_test_init{
+struct factory_test_init
+{
 	unsigned char rowsCnt;
 	unsigned char colsCnt;
 	unsigned short sensor_2_ic_map[MAX_RX_NUM_5472 + MAX_TX_NUM_5472];
 	char catch_buffer[100];
 	unsigned char read_buffer[MAX_CAP_DATA_SIZE];
-    struct file *file;
+
+    struct file *file;
 	loff_t pos;
 };
 static struct factory_test_init gFactory;
@@ -129,10 +131,7 @@ int semi_touch_test_prepare(void)
 				break;
 			}
 			kernel_log_d("config checksum mismatch, retry = %d\n", index);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-			tpd_print_zlog("semi_touch_test_prepare config checksum mismatch, retry = %d\n", index);
 			tpd_zlog_record_notify(TP_CRC_ERROR_NO);
-#endif
 		}
 
 		gFactory.rowsCnt = gFactory.read_buffer[0x1a];
@@ -146,8 +145,10 @@ int semi_touch_test_prepare(void)
 	} else {
 		ret = -SEMI_DRV_ERR_NO_INIT;
 	}
-		kernel_log_d("row = %d, col = %d\n", gFactory.rowsCnt, gFactory.colsCnt);
-		return ret;
+	
+	kernel_log_d("row = %d, col = %d\n", gFactory.rowsCnt, gFactory.colsCnt);
+	
+	return ret;
 }
 
 void semi_touch_log_file_imp(char *sztext)
@@ -329,8 +330,10 @@ int semi_touch_start_factory_test(void)
 		sprintf(detail, "short test = %s\n", "NG");
 	else
 		sprintf(detail, "exception, code = %d\n", ret); */
-	return ret;
-}
+
+	return ret;
+
+}
 
 #endif
 

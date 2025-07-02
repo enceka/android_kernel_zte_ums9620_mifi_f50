@@ -8,7 +8,7 @@
 #include "semi_config.h"
 #define LOG_LEVEL_E              KERN_EMERG
 #define LOG_LEVEL_D              KERN_EMERG	/*KERN_DEBUG */
-#define MODULE_NAME              "CHSC"
+#define MODULE_NAME              "[ZTE_LDD_TP][TPD_CHSC]"
 #define CHSC_DRIVER_VERSION      "v3.5.9"
 
 #define MAX_CORE_WRITE_LEN       128
@@ -25,8 +25,16 @@
 extern struct sm_touch_dev st_dev;
 
 #define HEAD "[%s] function = %-30s, line = %-4d: "
-#define kernel_log_e(fmt, ...)   printk(LOG_LEVEL_E HEAD fmt, MODULE_NAME, __func__, __LINE__, ##__VA_ARGS__)
-#define kernel_log_d(fmt, ...)   printk(LOG_LEVEL_D HEAD fmt, MODULE_NAME, __func__, __LINE__, ##__VA_ARGS__)
+#define kernel_log_e(fmt, ...)  \
+    do { \
+        pr_err(HEAD fmt, MODULE_NAME, __func__, __LINE__, ##__VA_ARGS__);\
+        tpd_save_last_log(HEAD fmt, MODULE_NAME, __func__, __LINE__, ##__VA_ARGS__);\
+    } while (0)
+#define kernel_log_d(fmt, ...)  \
+    do { \
+        pr_info(HEAD fmt, MODULE_NAME, __func__, __LINE__, ##__VA_ARGS__);\
+        tpd_save_last_log(HEAD fmt, MODULE_NAME, __func__, __LINE__, ##__VA_ARGS__);\
+    } while (0)
 #define check_return_if_fail(x, complete)  do { if (IS_ERR((void *)(long)x)) { kernel_log_e("err code = %ld\r\n", (long)x); if (complete > 0) ((de_init_fun)complete)(); return PTR_ERR((void *)(long)x); } } while (0)
 #define check_return_if_zero(x, complete)  do { if (NULL == (void *)(long)x) { kernel_log_e("err code = %d\r\n", -ENOMEM);  if (complete > 0) ((de_init_fun)complete)(); return -ENOMEM; } } while (0)
 #define check_break_if_fail(x, complete)   { if (IS_ERR((void *)(long)x)) { kernel_log_e("err code = %ld\r\n", PTR_ERR((void *)(long)x));  if (complete > 0) ((de_init_fun)complete)(); break; } }

@@ -26,6 +26,7 @@
 #define SC27XX_RTC_EN		BIT(7)
 #define SC27XX_RGB_PD		BIT(0)
 #define SC2730_RGB_PD		BIT(12)
+#define SC27XX_RGB_V	        0x10
 
 /* Breathing light controller register definition */
 #define SC27XX_LEDS_CTRL	0x00
@@ -33,6 +34,7 @@
 #define SC27XX_LEDS_DUTY	0x08
 #define SC27XX_LEDS_CURVE0	0x0c
 #define SC27XX_LEDS_CURVE1	0x10
+#define SC27XX_LEDS_STS	    0x34
 
 #define SC27XX_CTRL_SHIFT	4
 #define SC27XX_LED_RUN		BIT(0)
@@ -108,6 +110,7 @@ static int sc27xx_led_init(struct sc27xx_led_priv *priv, const struct sc27xx_led
 	int err;
 	struct regmap *regmap = priv->regmap;
 	u32 ctrl_base = priv->base + SC27XX_LEDS_CTRL;
+	u32 sts_base = priv->base + SC27XX_LEDS_STS;
 
 	err = regmap_update_bits(regmap, data->module_en, SC27XX_BLTC_EN,
 				 SC27XX_BLTC_EN);
@@ -116,6 +119,10 @@ static int sc27xx_led_init(struct sc27xx_led_priv *priv, const struct sc27xx_led
 
 	err = regmap_update_bits(regmap, data->clk_en, SC27XX_RTC_EN,
 				 SC27XX_RTC_EN);
+	if (err)
+		return err;
+
+	err = regmap_update_bits(regmap, sts_base, SC27XX_RGB_V, SC27XX_RGB_V);
 	if (err)
 		return err;
 

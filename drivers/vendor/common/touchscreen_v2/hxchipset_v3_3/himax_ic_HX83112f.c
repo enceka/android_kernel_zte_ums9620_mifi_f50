@@ -549,6 +549,7 @@ void hx83112f_init(void)
 	hx_s_core_fp._set_HSEN_enable = himax_mcu_set_HSEN_enable;
 	hx_s_core_fp._usb_detect_set = himax_mcu_usb_detect_set;
 	hx_s_core_fp._set_headset_enable = himax_enable_headset_mode;
+	hx_s_core_fp._set_hor_ver_switch_enable = himax_horizontal_and_vertical_switching;
 	hx_s_core_fp._diag_register_set = himax_mcu_diag_register_set;
 	// hx_s_core_fp._chip_self_test = himax_mcu_chip_self_test;
 	hx_s_core_fp._idle_mode = himax_mcu_idle_mode;
@@ -669,6 +670,7 @@ static bool hx83112f_chip_detect(void)
 		if (ret != 0) {
 			ret_data = false;
 			E("%s:_register_read Fail:\n", __func__);
+			tpd_zlog_record_notify(TP_PROBE_ERROR_NO);
 			return ret_data;
 		}
 		I("%s:Read driver IC ID = %X, %X, %X\n", __func__,
@@ -702,6 +704,7 @@ static bool hx83112f_chip_detect(void)
 			E("Please check 1.VCCD,VCCA,VSP,VSN\n");
 			E("2. LCM_RST,TP_RST\n");
 			E("3. Power On Sequence\n");
+			tpd_zlog_record_notify(TP_PROBE_ERROR_NO);
 		}
 	}
 FINAL:

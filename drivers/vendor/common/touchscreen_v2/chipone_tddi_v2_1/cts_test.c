@@ -6,6 +6,7 @@
 #include "cts_strerror.h"
 #include "cts_test.h"
 #include "cts_tcs.h"
+#include "cts_selftest.h"
 
 #ifdef CTS_CONFIG_MKDIR_FOR_CTS_TEST
 /* for ksys_mkdir/sys_mkdir */
@@ -51,8 +52,13 @@ const char *cts_test_item_str(int test_item)
 #define CTS_SHORT_TEST_BETWEEN_ROWS               (0x02)
 #define CTS_SHORT_TEST_BETWEEN_GND                (0x03)
 
+#define TEST_RESULT_BUFFER_SIZE(cts_dev) \
+	(cts_dev->hwdata->num_row * cts_dev->hwdata->num_col * 2)
+
 #define RAWDATA_BUFFER_SIZE(cts_dev) \
     (cts_dev->hwdata->num_row * cts_dev->hwdata->num_col * 2)
+extern PT_SelftestData selftestdata;
+extern void cts_test_data_print(u16 *test_data);
 
 int disable_fw_esd_protection(struct cts_device *cts_dev)
 {
@@ -65,13 +71,11 @@ int disable_fw_monitor_mode(struct cts_device *cts_dev)
     u8 value;
 
     ret = cts_fw_reg_readb(cts_dev, 0x8000 + 344, &value);
-	if (ret) {
+    if (ret)
         return ret;
-	}
 
-	if (value & BIT(0)) {
+    if (value & BIT(0))
         return cts_fw_reg_writeb(cts_dev, 0x8000 + 344, value & (~BIT(0)));
-	}
 
     return 0;
 }
@@ -614,7 +618,7 @@ static int validate_tsdata(struct cts_device *cts_dev, const char *desc, u16 *da
 #undef SPLIT_LINE_STR
 }
 
-static int wait_fw_to_normal_work(struct cts_device *cts_dev)
+int wait_fw_to_normal_work(struct cts_device *cts_dev)
 {
     int i = 0;
     int ret;
@@ -639,9 +643,35 @@ static int wait_fw_to_normal_work(struct cts_device *cts_dev)
     return ret ? ret : -ETIMEDOUT;
 }
 
+static int wait_fw_to_curr_mode(struct cts_device *cts_dev)
+{
+    int i = 0;
+    int ret;
+	u8 work_mode;
+
+    cts_info("Wait fw to curr work mode");
+
+    do {
+        ret = cts_tcs_get_curr_mode(cts_dev, &work_mode);
+        if (ret) {
+            cts_err("Get fw curr work mode failed %d", work_mode);
+            continue;
+        } else if (work_mode == CTS_FIRMWARE_WORK_MODE_OPEN_SHORT) {
+        	return 0;
+        }
+        mdelay(10);
+    } while (++i < 100);
+
+	cts_err("Get work_mode: %d != %d", work_mode, CTS_FIRMWARE_WORK_MODE_OPEN_SHORT);
+
+	return -ETIMEDOUT;
+}
+
 static int prepare_test(struct cts_device *cts_dev)
 {
     int ret;
+	int i = 0;
+	u8 workmode = -1;
 
     cts_info("Prepare test");
 
@@ -658,6 +688,20 @@ static int prepare_test(struct cts_device *cts_dev)
         cts_err("Set firmware work mode to WORK_MODE_CONFIG failed %d", ret);
         return ret;
     }
+	mdelay(30);
+    do {
+		ret = cts_tcs_get_workmode(cts_dev, &workmode);
+		if (ret) {
+		    cts_err("Get real workmode to FACTORY MODE failed %d", ret);
+		} else if (workmode == CTS_FIRMWARE_WORK_MODE_CFG) {
+			break;
+		}
+		mdelay(30);
+		cts_err("Get workmode: %d, CTS_FIRMWARE_WORK_MODE_CFG: %d, retry count: %d",
+			workmode, CTS_FIRMWARE_WORK_MODE_CFG, i);
+    } while (i++ < 10);
+	if (workmode != CTS_FIRMWARE_WORK_MODE_CFG)
+		return -EINVAL;	
 
     ret = cts_tcs_set_product_en(cts_dev, 1);
     if (ret) {
@@ -717,9 +761,6 @@ int cts_test_reset_pin(struct cts_device *cts_dev, struct cts_test_param *param)
 {
     ktime_t start_time, end_time, delta_time;
     int ret;
-#ifdef CFG_CTS_HEADSET_DETECT
-	struct chipone_ts_data *cts_data = container_of(cts_dev, struct chipone_ts_data, cts_dev);
-#endif
 
     if (cts_dev == NULL || param == NULL) {
         cts_err("Reset-pin test with invalid param: cts_dev: %p test param: %p",
@@ -763,27 +804,13 @@ int cts_test_reset_pin(struct cts_device *cts_dev, struct cts_test_param *param)
     }
 
 #ifdef CONFIG_CTS_CHARGER_DETECT
-    /* if (cts_is_charger_exist(cts_dev)) {
-        int r = cts_set_dev_charger_attached(cts_dev, true);
+    if (cts_is_charger_exist(cts_dev)) {
+        int r = cts_charger_plugin(cts_dev);;
         if (r) {
             cts_err("Set dev charger attached failed %d", r);
         }
-    } */
-	if (cts_is_charger_exist(cts_dev)) {
-		int r = cts_charger_plugin(cts_dev);
-		if (r) {
-			cts_err("Set dev charger attached failed %d", r);
-		}
-	}
+    }
 #endif /* CONFIG_CTS_CHARGER_DETECT */
-
-#ifdef CFG_CTS_HEADSET_DETECT
-	if (cts_data->headset_mode) {
-		cts_earphone_plugin(&cts_data->cts_dev);
-	} else {
-		cts_earphone_plugout(&cts_data->cts_dev);
-	}
-#endif
 
 #ifdef CONFIG_CTS_EARJACK_DETECT
     if (cts_is_earjack_exist(cts_dev)) {
@@ -932,7 +959,8 @@ int cts_test_rawdata(struct cts_device *cts_dev, struct cts_test_param *param)
     bool dump_test_data_to_file = false;
     int num_nodes;
     int tsdata_frame_size;
-    int frame;
+    int frame = 0;
+	int count = 3;
     int  fail_frame = 0;
     u16 *rawdata = NULL;
     ktime_t start_time, end_time, delta_time;
@@ -1005,10 +1033,11 @@ int cts_test_rawdata(struct cts_device *cts_dev, struct cts_test_param *param)
 
     cts_lock_device(cts_dev);
 
+try_again:
     ret = prepare_test(cts_dev);
     if (ret) {
         cts_err("Prepare test failed %d", ret);
-        goto unlock;
+        goto prepare_try;
     }
 
     cts_set_int_data_types(cts_dev, INT_DATA_TYPE_RAWDATA);
@@ -1060,15 +1089,24 @@ int cts_test_rawdata(struct cts_device *cts_dev, struct cts_test_param *param)
         }
     }
 
-    if (dump_test_data_to_file) {
-        cts_stop_dump_test_data_to_file();
-    }
-
+prepare_try:
     post_test(cts_dev);
     cts_set_int_data_method(cts_dev, INT_DATA_METHOD_NONE);
     cts_set_int_data_types(cts_dev, INT_DATA_TYPE_NONE);
 
-unlock:
+	if (ret < 0 && count--) {
+		if (dump_test_data_to_user) {
+            *param->test_data_wr_size = 0;
+			rawdata = (u16 *) param->test_data_buf;
+		}
+		goto try_again;
+	}
+	if (selftestdata->rawdata != NULL)
+		memcpy(selftestdata->rawdata, rawdata, RAWDATA_BUFFER_SIZE(cts_dev));
+    if (dump_test_data_to_file) {
+        cts_stop_dump_test_data_to_file();
+    }
+
     cts_unlock_device(cts_dev);
     {
         int r = cts_start_device(cts_dev);
@@ -1110,7 +1148,7 @@ int cts_test_noise(struct cts_device *cts_dev, struct cts_test_param *param)
     bool dump_test_data_to_file = false;
     int num_nodes;
     int tsdata_frame_size;
-    int frame;
+    int frame = 0;
     u16 *buffer = NULL;
     int buf_size = 0;
     u16 *curr_rawdata = NULL;
@@ -1122,6 +1160,7 @@ int cts_test_noise(struct cts_device *cts_dev, struct cts_test_param *param)
     ktime_t start_time, end_time, delta_time;
     int i;
     int ret;
+	int count = 3;
 
     if (cts_dev == NULL || param == NULL ||
         param->priv_param_size != sizeof(*priv_param) ||
@@ -1191,10 +1230,11 @@ int cts_test_noise(struct cts_device *cts_dev, struct cts_test_param *param)
 
     cts_lock_device(cts_dev);
 
+try_again:
     ret = prepare_test(cts_dev);
     if (ret) {
         cts_err("Prepare test failed %d", ret);
-        goto unlock;
+        goto prepare_try;
     }
 
     cts_set_int_data_types(cts_dev, INT_DATA_TYPE_RAWDATA);
@@ -1216,7 +1256,7 @@ int cts_test_noise(struct cts_device *cts_dev, struct cts_test_param *param)
         if (i >= 3) {
             cts_err("Read rawdata failed");
             ret = -EIO;
-            goto disable_get_tsdata;
+            goto prepare_try;
         }
 
         if (dump_test_data_to_console || dump_test_data_to_file) {
@@ -1249,16 +1289,22 @@ int cts_test_noise(struct cts_device *cts_dev, struct cts_test_param *param)
 
     data_valid = true;
 
-disable_get_tsdata:
-    if (dump_test_data_to_file) {
-        cts_stop_dump_test_data_to_file();
-    }
-
+prepare_try:
     post_test(cts_dev);
     cts_set_int_data_method(cts_dev, INT_DATA_METHOD_NONE);
     cts_set_int_data_types(cts_dev, INT_DATA_TYPE_NONE);
 
-unlock:
+	if (ret < 0 && count--) {
+		if (dump_test_data_to_user) {
+			*param->test_data_wr_size = 0;
+		}
+		goto try_again;
+	}
+
+    if (dump_test_data_to_file) {
+        cts_stop_dump_test_data_to_file();
+    }
+
     cts_unlock_device(cts_dev);
     {
         int r = cts_start_device(cts_dev);
@@ -1293,7 +1339,8 @@ unlock:
         ret = validate_tsdata(cts_dev, "Noise test", noise, param->invalid_nodes,
             param->num_invalid_node, validate_data_per_node, param->min, param->max);
     }
-
+	if (selftestdata->noisedata != NULL)
+			memcpy(selftestdata->noisedata, noise, RAWDATA_BUFFER_SIZE(cts_dev));
 free_mem:
     if (buffer) {
         kfree(buffer);
@@ -1329,6 +1376,7 @@ int cts_test_open(struct cts_device *cts_dev, struct cts_test_param *param)
     int num_nodes;
     int tsdata_frame_size;
     int ret;
+	int count = 3;
     u16 *test_result = NULL;
     bool recovery_display_state = false;
     u8 need_display_on;
@@ -1386,6 +1434,7 @@ int cts_test_open(struct cts_device *cts_dev, struct cts_test_param *param)
 
     cts_lock_device(cts_dev);
 
+try_again:
     ret = prepare_test(cts_dev);
     if (ret) {
         cts_err("Prepare test failed %d", ret);
@@ -1418,6 +1467,12 @@ int cts_test_open(struct cts_device *cts_dev, struct cts_test_param *param)
         cts_err("Set firmware work mode to WORK_MODE_TEST failed %d", ret);
         goto err_recovery_display_state;
     }
+
+	ret = wait_fw_to_curr_mode(cts_dev);
+	if (ret) {
+		cts_err("wait_to_curr_mode failed %d", ret);
+		goto err_recovery_display_state;
+	}
 
     cts_set_int_data_types(cts_dev, INT_DATA_TYPE_RAWDATA);
     cts_set_int_data_method(cts_dev, INT_DATA_METHOD_POLLING);
@@ -1461,6 +1516,8 @@ err_recovery_display_state:
     if (driver_validate_data) {
         ret = validate_tsdata(cts_dev, "Open-circuit", test_result, param->invalid_nodes,
             param->num_invalid_node, validate_data_per_node, param->min, param->max);
+		if (selftestdata->opendata != NULL)
+			memcpy(selftestdata->opendata, test_result, RAWDATA_BUFFER_SIZE(cts_dev));
     }
 
 err_free_test_result:
@@ -1469,13 +1526,14 @@ err_free_test_result:
     cts_set_int_data_method(cts_dev, old_int_data_method);
     cts_set_int_data_types(cts_dev, old_int_data_types);
 
+	if (ret < 0 && count--) {
+		if (dump_test_data_to_user) {
+			*param->test_data_wr_size = 0;
+			test_result = (u16 *) param->test_data_buf;
+		}
+		goto try_again;
+	}
 #ifdef CONFIG_CTS_CHARGER_DETECT
-    /* if (cts_is_charger_exist(cts_dev)) {
-        int r = cts_set_dev_charger_attached(cts_dev, true);
-        if (r) {
-            cts_err("Set dev charger attached failed %d", r);
-        }
-    } */
 	if (cts_is_charger_exist(cts_dev)) {
 		int r = cts_charger_plugin(cts_dev);
 		if (r) {
@@ -1551,6 +1609,7 @@ int cts_test_short(struct cts_device *cts_dev, struct cts_test_param *param)
     int num_nodes;
     int tsdata_frame_size;
     int loopcnt;
+	int count = 3;
     int ret;
     u16 *test_result = NULL;
     bool recovery_display_state = false;
@@ -1611,30 +1670,31 @@ int cts_test_short(struct cts_device *cts_dev, struct cts_test_param *param)
 
     cts_lock_device(cts_dev);
 
+try_again:
     ret = prepare_test(cts_dev);
     if (ret) {
         cts_err("Prepare test failed %d", ret);
-        goto unlock_device;
+        goto prepare_try;
     }
     ret = cts_tcs_is_display_on(cts_dev, &need_display_on);
     if (ret) {
         cts_err("Read need display on register failed %d", ret);
-        goto err_free_test_result;
+        goto prepare_try;
     }
 
     if (need_display_on == 0) {
         ret = cts_tcs_set_display_on(cts_dev, 0x00);
         if (ret) {
             cts_err("Set display state to SLEEP failed %d", ret);
-            goto err_free_test_result;
+            goto recovery_display_state;
         }
         recovery_display_state = true;
     }
 
     cts_info("Test short to GND");
-    ret = cts_tcs_set_short_test_type(cts_dev, CTS_SHORT_TEST_BETWEEN_GND);
+    ret = cts_tcs_set_short_test_type(cts_dev, CTS_SHORT_TEST_UNDEFINED);
     if (ret) {
-        cts_err("Set short test type to SHORT_TO_GND failed %d", ret);
+        cts_err("Set short test type failed %d", ret);
         goto recovery_display_state;
     }
     ret = cts_tcs_set_openshort_mode(cts_dev, CTS_TEST_SHORT);
@@ -1648,8 +1708,21 @@ int cts_test_short(struct cts_device *cts_dev, struct cts_test_param *param)
         goto recovery_display_state;
     }
 
+	ret = wait_fw_to_curr_mode(cts_dev);
+	if (ret) {
+		cts_err("wait_to_curr_mode failed %d", ret);
+		goto recovery_display_state;
+	}
+
     cts_set_int_data_types(cts_dev, INT_DATA_TYPE_RAWDATA);
     cts_set_int_data_method(cts_dev, INT_DATA_METHOD_POLLING);
+
+    ret = cts_tcs_set_short_test_type(cts_dev, CTS_SHORT_TEST_BETWEEN_GND);
+    if (ret) {
+        cts_err("Set short test type to SHORT_TO_GND failed %d", ret);
+        goto recovery_display_state;
+    }
+	
     ret = cts_tcs_polling_test_data(cts_dev, (u8 *)test_result,
         RAWDATA_BUFFER_SIZE(cts_dev));
     if (ret) {
@@ -1676,8 +1749,16 @@ int cts_test_short(struct cts_device *cts_dev, struct cts_test_param *param)
         if (ret) {
             cts_err("Short to GND test failed %d", ret);
             if (stop_if_failed) {
-                goto stop_dump_test_data_to_file;
+                goto recovery_display_state;
             }
+        }
+        if (selftestdata->shortdata != NULL) {
+            memset(selftestdata->shortdata, 0, RAWDATA_BUFFER_SIZE(cts_dev));
+            memcpy(selftestdata->shortdata, test_result, RAWDATA_BUFFER_SIZE(cts_dev));
+            cts_print_test_info("\n\n");
+            cts_print_test_info("=============================================\
+    [GND_SHORTDATA]    ============================================\n");
+            cts_test_data_print(selftestdata->shortdata);
         }
     }
     if (dump_test_data_to_user) {
@@ -1691,16 +1772,6 @@ int cts_test_short(struct cts_device *cts_dev, struct cts_test_param *param)
         cts_err("Set short test type to BETWEEN_COLS failed %d", ret);
         goto recovery_display_state;
     }
-    /* ret = cts_tcs_set_openshort_mode(cts_dev, CTS_TEST_SHORT);
-    if (ret) {
-        cts_err("Set test type to SHORT failed %d", ret);
-        goto recovery_display_state;
-    }
-    ret = cts_tcs_set_workmode(cts_dev, CTS_FIRMWARE_WORK_MODE_OPEN_SHORT);
-    if (ret) {
-        cts_err("Set firmware work mode to WORK_MODE_TEST failed %d", ret);
-        goto recovery_display_state;
-    } */
 
     for (loopcnt = 0; loopcnt < SHORT_COLS_TEST_LOOP; loopcnt++) {
         ret = cts_tcs_polling_test_data(cts_dev, (u8 *)test_result,
@@ -1728,6 +1799,14 @@ int cts_test_short(struct cts_device *cts_dev, struct cts_test_param *param)
                     goto recovery_display_state;
                 }
             }
+            if (selftestdata->shortdata != NULL) {
+                memset(selftestdata->shortdata, 0, RAWDATA_BUFFER_SIZE(cts_dev));
+                memcpy(selftestdata->shortdata, test_result, RAWDATA_BUFFER_SIZE(cts_dev));
+                cts_print_test_info("\n\n");
+                cts_print_test_info("========================================\
+    [short between columns:%d]    ====================================== \n", loopcnt);
+                cts_test_data_print(selftestdata->shortdata);
+            }
         }
         if (dump_test_data_to_user) {
             test_result += num_nodes;
@@ -1736,22 +1815,13 @@ int cts_test_short(struct cts_device *cts_dev, struct cts_test_param *param)
 
     /* Short between rows */
     cts_info("Test short between rows");
-    for (loopcnt = 0; loopcnt < SHORT_ROWS_TEST_LOOP; loopcnt++) {
-        ret = cts_tcs_set_short_test_type(cts_dev, CTS_SHORT_TEST_BETWEEN_ROWS);
-        if (ret) {
-            cts_err("Set short test type to BETWEEN_ROWS failed %d", ret);
-            goto recovery_display_state;
-        }
-        /* ret = cts_tcs_set_openshort_mode(cts_dev, CTS_TEST_SHORT);
-        if (ret) {
-            cts_err("Set test type to SHORT failed %d", ret);
-            goto recovery_display_state;
-        }
-        ret = cts_tcs_set_workmode(cts_dev, CTS_FIRMWARE_WORK_MODE_OPEN_SHORT);
-        if (ret) {
-            cts_err("Set firmware work mode to WORK_MODE_TEST failed %d", ret);
-            goto recovery_display_state;
-        } */
+    ret = cts_tcs_set_short_test_type(cts_dev, CTS_SHORT_TEST_BETWEEN_ROWS);
+    if (ret) {
+        cts_err("Set short test type to BETWEEN_ROWS failed %d", ret);
+        goto recovery_display_state;
+    }
+
+	for (loopcnt = 0; loopcnt < SHORT_ROWS_TEST_LOOP; loopcnt++) {
         ret = cts_tcs_polling_test_data(cts_dev, (u8 *)test_result,
                 RAWDATA_BUFFER_SIZE(cts_dev));
         if (ret) {
@@ -1774,6 +1844,14 @@ int cts_test_short(struct cts_device *cts_dev, struct cts_test_param *param)
                     goto recovery_display_state;
                 }
             }
+            if (selftestdata->shortdata != NULL) {
+                memset(selftestdata->shortdata, 0, RAWDATA_BUFFER_SIZE(cts_dev));
+                memcpy(selftestdata->shortdata, test_result, RAWDATA_BUFFER_SIZE(cts_dev));
+                cts_print_test_info("\n\n");
+                cts_print_test_info("==========================================\
+    [Short between rows:%d]    ==========================================\n", loopcnt);
+                cts_test_data_print(selftestdata->shortdata);
+            }
         }
         if (dump_test_data_to_user) {
             test_result += num_nodes;
@@ -1788,22 +1866,25 @@ recovery_display_state:
         }
     }
 
-stop_dump_test_data_to_file:
-    if (dump_test_data_to_file) {
-        cts_stop_dump_test_data_to_file();
-    }
-
+prepare_try:
     post_test(cts_dev);
     cts_set_int_data_method(cts_dev, old_int_data_method);
     cts_set_int_data_types(cts_dev, old_int_data_types);
 
+	if (ret < 0 && count--) {
+		if (dump_test_data_to_user) {
+            *param->test_data_wr_size = 0;
+			test_result = (u16 *) param->test_data_buf;
+		}
+		goto try_again;
+	}
+
+    if (dump_test_data_to_file) {
+        cts_stop_dump_test_data_to_file();
+    }
+
+
 #ifdef CONFIG_CTS_CHARGER_DETECT
-    /* if (cts_is_charger_exist(cts_dev)) {
-        int r = cts_set_dev_charger_attached(cts_dev, true);
-        if (r) {
-            cts_err("Set dev charger attached failed %d", r);
-        }
-    } */
 	if (cts_is_charger_exist(cts_dev)) {
 		int r = cts_charger_plugin(cts_dev);
 		if (r) {
@@ -1840,7 +1921,6 @@ stop_dump_test_data_to_file:
     }
 #endif
 
-unlock_device:
     cts_unlock_device(cts_dev);
 
     cts_start_device(cts_dev);
@@ -2021,6 +2101,7 @@ int cts_test_compensate_cap(struct cts_device *cts_dev,
     bool dump_test_data_to_console = false;
     bool dump_test_data_to_file = false;
     int num_nodes;
+	int count = 3;
     u8 *cap = NULL;
     int ret = 0;
     ktime_t start_time, end_time, delta_time;
@@ -2073,15 +2154,20 @@ int cts_test_compensate_cap(struct cts_device *cts_dev,
     }
 
     cts_lock_device(cts_dev);
+
+try_again:
     ret = prepare_test(cts_dev);
     if (ret) {
         cts_err("Prepare test failed %d", ret);
-        goto unlock_device;
+        goto prepare_try;
     }
     ret = cts_tcs_top_get_cnegdata(cts_dev, cap, num_nodes);
 
-unlock_device:
+prepare_try:
     post_test(cts_dev);
+    if (ret && count--)
+        goto try_again;
+	
     cts_unlock_device(cts_dev);
     if (ret) {
         cts_err("Get compensate cap failed %d", ret);
@@ -2102,8 +2188,11 @@ unlock_device:
 
     if (dump_test_data_to_console || dump_test_data_to_file) {
         cts_dump_comp_cap(cts_dev, cap, dump_test_data_to_console);
+    }    
+    if (selftestdata->capdata != NULL) {
+        cts_info("selftestdata capdata copy u16");
+        memcpy(selftestdata->capdata, cap, RAWDATA_BUFFER_SIZE(cts_dev));
     }
-
     if (dump_test_data_to_file) {
         cts_stop_dump_test_data_to_file();
     }

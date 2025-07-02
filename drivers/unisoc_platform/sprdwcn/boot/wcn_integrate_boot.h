@@ -25,4 +25,5 @@ struct reg_wcn_aon_ahb_reserved2 {
 #define BTWF_SW_DEEP_SLEEP_MAGIC (0x504C5344)
 #endif
 
+#define SIPC_SBUF_CHN_MULTIPLEX_WAIT_US 25000
 #endif

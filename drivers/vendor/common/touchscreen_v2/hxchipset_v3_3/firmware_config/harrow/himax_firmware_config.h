@@ -14,8 +14,7 @@
   auto upgrade, please keep enable
 *********************************************************/
 /* #define HX_HIGH_SENSE */
-/* #define HX_USB_DETECT_GLOBAL
-#define HEADLINE_MODE
+/* #define HEADLINE_MODE
 #define HX_FIX_TOUCH_INFO
 #define HX_DISPLAY_ROTATION
 #define HX_EDGE_LIMIT
@@ -35,19 +34,22 @@
 #define HX_RESUME_SEND_CMD	/*Need to enable on TDDI chipset*/
 /*#define HX_HIGH_SENSE*/
 /*#define HX_PALM_REPORT*/
-/*#define HX_USB_DETECT_GLOBAL*/
+#define HX_USB_DETECT_GLOBAL
 #define HX_RW_FILE
 #define HX_HEADSET_MODE
+
+/*Horizontal and vertical screen switching*/
+#define HX_HOR_VER_SWITCH_MODE
 
 /* for MTK special platform.If turning on,
  * it will report to system by using specific format.
  */
-/* #define HX_REPORT_BY_ZTE_ALGO */
+#define HX_REPORT_BY_ZTE_ALGO
 /*#define HX_PROTOCOL_A*/
 #define HX_PROTOCOL_B_3PA
 
 #define HX_ZERO_FLASH
-
+#define HX_GET_NOISE
 /*system suspend-chipset power off,
  *oncell chipset need to enable the definition
  */
@@ -102,13 +104,13 @@ enum himax_vendor_id {
 /*
  * Numbers of modules support
  */
-#define HXTS_VENDOR_0_NAME	"lectron"
-#define HXTS_VENDOR_1_NAME	"unknown"
+#define HXTS_VENDOR_0_NAME	"lectron_120hz"
+#define HXTS_VENDOR_1_NAME	"lectron"
 #define HXTS_VENDOR_2_NAME	"unknown"
 #define HXTS_VENDOR_3_NAME	"unknown"
 #ifdef HX_ZERO_FLASH
 /* this macro need be configured refer to module*/
-#define HXTS_DEFAULT_FIRMWARE     "hxtp_6_67_default_common_firmware"
+#define HIMAX_DEFAULT_FIRMWARE        "himax_6_58_default_firmware"
 #endif
 
 #endif

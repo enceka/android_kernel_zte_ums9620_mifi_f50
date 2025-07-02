@@ -254,7 +254,7 @@ int sitronix_register_fw_class(void)
 
 	tpd_cdev->max_x = ts->ts_dev_info.x_res;
 	tpd_cdev->max_y = ts->ts_dev_info.y_res;
-
+	tpd_cdev->input = ts->input_dev;
 	gts->charger_workqueue = create_singlethread_workqueue("sitronix_ts_charger_workqueue");
 	if (!gts->charger_workqueue) {
 		sterr(" allocate gts->charger_workqueue failed\n");

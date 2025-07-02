@@ -115,10 +115,24 @@ static struct cdfinger_data {
 	int irq_request;
 	int gpio_requested;
 	int fops_ref;
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	struct zlog_client *zlog_fp_client;
+#endif
 }*g_cdfinger;
 
 static DECLARE_WAIT_QUEUE_HEAD(waiter);
 static DECLARE_WAIT_QUEUE_HEAD(cdfinger_waitqueue);
+
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+struct zlog_mod_info cdfinger_zlog_fp_dev = {
+	.module_no = ZLOG_MODULE_FP,
+	.name = "fingerprint",
+	.device_name = "ShenYue",
+	.ic_name = "cdfinger",
+	.module_name = "FP",
+	.fops = NULL,
+};
+#endif
 
 //clk will follow platform... pls check this when you poarting
 //static void cdfinger_enable_clk(void)
@@ -271,6 +285,12 @@ static int cdfinger_parse_dts(struct cdfinger_data *cdfinger)
 		rc = gpio_request(cdfinger->reset_gpio, "cdfinger_reset");
 		if (rc) {
 			cfp_debug(ERR_LOG, "failed to request reset gpio!rc = %d\n", rc);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+			if (cdfinger->zlog_fp_client) {
+				zlog_client_record(cdfinger->zlog_fp_client, "Failed to request cdfingerfp rst gpio\n");
+				zlog_client_notify(cdfinger->zlog_fp_client,  ZLOG_FP_REQUEST_RST_GPIO_ERROR_NO);
+			}
+#endif
 			goto err_reset;
 		} else {
 			cfp_debug(INFO_LOG, "success to request reset gpio!\n");
@@ -287,6 +307,12 @@ static int cdfinger_parse_dts(struct cdfinger_data *cdfinger)
 		rc = gpio_request(cdfinger->irq_gpio, "cdfinger_irq");
 		if (rc) {
 			cfp_debug(ERR_LOG, "failed to request irq gpio!rc = %d\n", rc);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+			if (cdfinger->zlog_fp_client) {
+				zlog_client_record(cdfinger->zlog_fp_client, "Failed to request cdfingerfp irq gpio\n");
+				zlog_client_notify(cdfinger->zlog_fp_client,  ZLOG_FP_REQUEST_INT_GPIO_ERROR_NO);
+			}
+#endif
 			goto err_irq;
 		} else {
 			cfp_debug(INFO_LOG, "success to request irq gpio!\n");
@@ -322,6 +348,12 @@ static int cdfinger_parse_dts(struct cdfinger_data *cdfinger)
 		rc = regulator_set_voltage(cdfinger->fp_reg, cdfinger->power_voltage, cdfinger->power_voltage);
 		if (rc) {
 			cfp_debug(ERR_LOG, "%s:regulator_set_voltage failed, rc=%d\n", __func__, rc);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+			if (cdfinger->zlog_fp_client) {
+				zlog_client_record(cdfinger->zlog_fp_client, "Failed to regulator get and set cdfingerfp vcc\n");
+				zlog_client_notify(cdfinger->zlog_fp_client,  ZLOG_FP_REGULATOR_GET_SET_ERROR_NO);
+			}
+#endif
 			goto err_pwr;
 		} else {
 			cfp_debug(INFO_LOG, "%s:regulator_set_voltage success\n", __func__);
@@ -337,6 +369,12 @@ static int cdfinger_parse_dts(struct cdfinger_data *cdfinger)
 			rc = gpio_request(cdfinger->pwr_gpio, "cdfinger_pwr");
 			if (rc) {
 				cfp_debug(ERR_LOG, "failed to request pwr gpio!rc = %d\n", rc);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+				if (cdfinger->zlog_fp_client) {
+					zlog_client_record(cdfinger->zlog_fp_client, "Failed to request cdfingerfp pwr gpio\n");
+					zlog_client_notify(cdfinger->zlog_fp_client,  ZLOG_FP_REQUEST_PWR_GPIO_ERROR_NO);
+				}
+#endif
 				goto err_pwr;
 			} else {
 				cfp_debug(INFO_LOG, "success to request pwr gpio!\n");
@@ -586,7 +624,7 @@ static void cdfinger_free_irq(struct cdfinger_data *cdfinger)
 	}
 }
 
-static irqreturn_t cdfinger_interrupt_handler(unsigned irq, void *arg)
+static irqreturn_t cdfinger_interrupt_handler(int irq, void *arg)
 {
 	struct cdfinger_data *cdfinger = (struct cdfinger_data *)arg;
 
@@ -619,7 +657,7 @@ static int cdfinger_init_irq(struct cdfinger_data *cdfinger)
 		pinctrl_select_state(cdfinger->fps_pinctrl, cdfinger->cdfinger_irq);
 #endif
 
-	status = request_threaded_irq(cdfinger->irq, (irq_handler_t)cdfinger_interrupt_handler, NULL,
+	status = request_threaded_irq(cdfinger->irq, NULL, cdfinger_interrupt_handler, 
 								  IRQF_TRIGGER_RISING | IRQF_ONESHOT, "cdfinger-irq", cdfinger);
 	if (status)
 	{
@@ -648,6 +686,12 @@ static int cdfinger_power_off(struct cdfinger_data *cdfinger)
 			rc = regulator_disable(cdfinger->fp_reg);
 			if (rc) {
 				cfp_debug(ERR_LOG, "%s:regulator_disable failed, ret=%d\n", __func__, rc);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+				if (cdfinger->zlog_fp_client) {
+					zlog_client_record(cdfinger->zlog_fp_client, "Failed to regulator disable cdfingerfp vcc\n");
+					zlog_client_notify(cdfinger->zlog_fp_client,  ZLOG_FP_REGULATOR_DISABLE_ERROR_NO);
+				}
+#endif
 				return rc;
 			} else {
 				cfp_debug(INFO_LOG, "%s:regulator_disable success\n", __func__);
@@ -678,6 +722,12 @@ static int cdfinger_power_on(struct cdfinger_data *cdfinger)
 			rc = regulator_enable(cdfinger->fp_reg);
 			if (rc) {
 				cfp_debug(ERR_LOG, "%s:regulator_enable failed, rc=%d\n", __func__, rc);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+				if (cdfinger->zlog_fp_client) {
+					zlog_client_record(cdfinger->zlog_fp_client, "Failed to regulator enable cdfingerfp vcc\n");
+					zlog_client_notify(cdfinger->zlog_fp_client,  ZLOG_FP_REGULATOR_ENABLE_ERROR_NO);
+				}
+#endif
 				return rc;
 			} else {
 				cfp_debug(INFO_LOG, "%s:regulator_enable success\n", __func__);
@@ -1109,6 +1159,14 @@ static int cdfinger_open(struct inode *inode, struct file *file)
 		cfp_debug(ERR_LOG, "fp-nav device node not found!\n");
 	}
 
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	g_cdfinger->zlog_fp_client = zlog_register_client(&cdfinger_zlog_fp_dev);
+	if (g_cdfinger->zlog_fp_client) {
+		cfp_debug(INFO_LOG, "%s zlog_register_cdfingerfp_client success\n", __func__);
+	} else {
+		cfp_debug(ERR_LOG, "%s zlog_register_cdfingerfp_client fail\n", __func__);
+	}
+#endif
 	mutex_unlock(&g_cdfinger->buf_lock);
 
 	return 0;
@@ -1126,6 +1184,12 @@ static int cdfinger_release(struct inode *inode, struct file *file)
 		cdfinger_free_input(cdfinger);
 		file->private_data = NULL;
 	}
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	if (g_cdfinger->zlog_fp_client) {
+		zlog_unregister_client(g_cdfinger->zlog_fp_client);
+		cfp_debug(INFO_LOG, "%s zlog_unregister_client cdfinger_zlog_fp_dev\n", __func__);
+	}
+#endif
 	mutex_unlock(&cdfinger->buf_lock);
 	return 0;
 }
@@ -1189,9 +1253,9 @@ static int cdfinger_thread_func(void *arg)
 		cfp_debug(DEBUG_LOG, "%s thread_wakeup\n", __func__);
 		cdfinger->thread_wakeup = 0;
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 14, 0))
-		__pm_wakeup_event(cdfinger->cdfinger_lock, 100);
+		__pm_wakeup_event(cdfinger->cdfinger_lock, 3000);
 #else
-		wake_lock_timeout(&cdfinger->cdfinger_lock, msecs_to_jiffies(100));
+		wake_lock_timeout(&cdfinger->cdfinger_lock, msecs_to_jiffies(3000));
 #endif
 
 		if (cdfinger->device_mode == CDFINGER_INTERRUPT_MODE) {
@@ -1370,6 +1434,7 @@ struct of_device_id cdfinger_of_match[] = {
 	{ .compatible = "cdfinger,fps998", },
 	{ .compatible = "cdfinger,fps980", },
 	{ .compatible = "cdfinger,fps956", },
+	{ .compatible = "cdfinger,fps1632sb", },
 	{},
 };
 MODULE_DEVICE_TABLE(of, cdfinger_of_match);
@@ -1420,7 +1485,7 @@ static struct spi_board_info spi_board_cdfinger[] __initdata = {
 
 int cdfinger_fp_init(void)
 {
-	cfp_debug(INFO_LOG, "%s enter, driver_time:2022-12-20\n", __func__);
+	cfp_debug(INFO_LOG, "%s enter, driver_time:2023-09-25\n", __func__);
 
 #ifndef DTS_PROBE
 	spi_register_board_info(spi_board_cdfinger, ARRAY_SIZE(spi_board_cdfinger));

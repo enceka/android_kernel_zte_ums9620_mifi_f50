@@ -15,6 +15,7 @@ enum cts_test_type {
 	RAWDATA_TEST_CODE,
 	OPEN_CIRCUITE_TEST_CODE,
 	SHORT_CIRCUITE_TEST_CODE,
+	NOISE_TEST_CODE,
 };
 
 int cts_start_selftest(struct cts_device *cts_dev);
@@ -33,18 +34,21 @@ typedef struct TestItem {
 #define KEY_ITEM_RAWDATA          "RAWDATA_TEST"
 #define KEY_ITEM_OPEN_CIRCUITE    "OPEN_CIRCUITE_TEST"
 #define KEY_ITEM_SHORT_CIRCUITE   "SHORT_CIRCUITE_TEST"
+#define KEY_ITEM_NOISE_TEST       "NOISE_TEST"
 
 #define KEY_PARAMETER_FIRMWARE_VERSION  "FIRMWARE_VERSION"
 #define KEY_PARAMETER_RAWDATA_MIN		"RAWDATA_THRESHOLD_MIN"
 #define KEY_PARAMETER_RAWDATA_MAX		"RAWDATA_THRESHOLD_MAX"
 #define KEY_OPEN_CIRCUITE_THRES		"OPEN_CIRCUITE_THRESHOLD"
 #define KEY_SHORT_CIRCUITE_THRES		"SHORT_CIRCUITE_THRESHOLD"
+#define KEY_NOISE_TEST_THRES		"NOISE_THRESHOLD"
 
 #define DEFAULT_FIRMWARE_VERSION_TEST_VAL 0x0400
 #define DEFAULT_RAWDATA_TEST_MIN          500
 #define DEFAULT_RAWDATA_TEST_MAX          3000
 #define DEFAULT_OPEN_TEST_THRES           500
 #define DEFAULT_SHORT_TEST_THRES          200
+#define DEFAULT_NOISE_TEST_THRES          110
 
 typedef struct {
 	int version;
@@ -62,6 +66,10 @@ typedef struct {
 typedef struct {
 	int thres;
 } T_ShortTestVar, *PT_ShortTestVar;
+
+typedef struct {
+	int thres;
+} T_NoiseTestVar, *PT_NoiseTestVar;
 
 #define CTS_KEYWORD_MAX_NUM  20
 #define CTS_KEYWORD_FIELD_MAXLEN 20
@@ -96,11 +104,13 @@ typedef struct {
 	u16 *rawdata;
 	u16 *shortdata;
 	u16 *opendata;
+	u16 *noisedata;
 
 	T_VersionTestVar version_test_var;
 	T_RawdataTestVar rawdata_test_var;
 	T_OpenTestVar open_test_var;
 	T_ShortTestVar short_test_var;
+	T_NoiseTestVar noise_test_var;
 } T_SelftestData, *PT_SelftestData;
 
 #define cts_print_test_info(fmt, args...) do {\

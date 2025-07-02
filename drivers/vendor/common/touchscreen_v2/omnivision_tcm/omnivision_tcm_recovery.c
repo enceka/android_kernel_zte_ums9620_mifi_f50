@@ -1302,14 +1302,14 @@ static struct ovt_tcm_module_cb recovery_module = {
 
 int recovery_module_init(void)
 {
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
 
 	return ovt_tcm_add_module(&recovery_module, true);
 }
 
 void recovery_module_exit(void)
 {
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
 
 	ovt_tcm_add_module(&recovery_module, false);
 	wait_for_completion(&recovery_remove_complete);

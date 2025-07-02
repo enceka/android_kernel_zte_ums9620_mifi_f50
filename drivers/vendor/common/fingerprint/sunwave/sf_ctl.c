@@ -54,7 +54,7 @@
 #endif
 
 //---------------------------------------------------------------------------------
-#define SF_DRV_VERSION "v2.4.2-2022-10-20"
+#define SF_DRV_VERSION "v2.4.2-2023-09-25"
 
 #define MODULE_NAME "fortsense-sf_ctl"
 //#define xprintk(level, fmt, args...) printk(level MODULE_NAME"-%d: "fmt, __LINE__, ##args)
@@ -297,7 +297,7 @@ static irqreturn_t sf_ctl_device_irq(int irq, void *dev_id)
     schedule_work(&sf_ctl_dev.work_queue);
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 14, 0))
     /* __pm_wakeup_event(sf_ctl_dev.wakelock, msecs_to_jiffies(5000)); */
-    __pm_wakeup_event(sf_ctl_dev.wakelock, 1000);
+    __pm_wakeup_event(sf_ctl_dev.wakelock, 3000);
 #else
     wake_lock_timeout(&sf_ctl_dev.wakelock, msecs_to_jiffies(5000));
 #endif

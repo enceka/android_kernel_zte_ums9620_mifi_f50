@@ -42,7 +42,7 @@
 #define SPI_REG					0
 
 #define ST_SPI_DELAY_AFTER_FIRST_WORD
-#define ST_SPI_DELAY_US			6
+#define ST_SPI_DELAY_US			10
 
 #define ST_SPI_TRR_US_MIN		30
 #define ST_SPI_TRR_US_MAX		31
@@ -114,6 +114,7 @@ static int sitronix_ts_spi_read(uint16_t addr, uint8_t *data, uint16_t len, void
 	if (retry > SPI_RETRY_COUNT) {
 		sterr("%s: Failed to complete SPI transfer, error = %d , IC status = %d\n", __func__, ret, status);
 		ret = -EIO;
+		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
 	}
 	memcpy(data, spi_buf_rx + ST_SPI_FW_ADDRESS_LEN + ST_SPI_FW_DUMMY_LEN, len);
 
@@ -196,6 +197,7 @@ static int sitronix_ts_spi_write(uint16_t addr, uint8_t *data, uint16_t len, voi
 	if (retry > SPI_RETRY_COUNT) {
 		sterr("%s: Failed to complete SPI transfer, error = %d , IC status = %d\n", __func__, ret, status);
 		ret = -EIO;
+		tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
 	}
 	usleep_range(ST_SPI_TRW_US_MIN,ST_SPI_TRW_US_MAX);
 	return ret;
@@ -539,7 +541,7 @@ static int sitronix_ts_spi_probe(struct spi_device *spi)
 	spi->max_speed_hz = spi_data.spi_max_freq;
 	spi->chip_select = spi_data.reg;
 	//stmsg("spi->chip_select = %d\n", spi->chip_select); 
-	/* stmsg(" spi_data.spi_max_freq = %d\n", spi_data.spi_max_freq); */
+	stmsg(" spi_data.spi_max_freq = %d\n", spi->max_speed_hz);
 	/* spi->max_speed_hz = 9600000; */
 
 	ret = spi_setup(spi);

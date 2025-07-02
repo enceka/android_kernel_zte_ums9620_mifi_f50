@@ -6,6 +6,7 @@
 #include "cts_strerror.h"
 #include "cts_test.h"
 #include "cts_tcs.h"
+#include "cts_selftest.h"
 
 #ifdef CTS_CONFIG_MKDIR_FOR_CTS_TEST
 /* for ksys_mkdir/sys_mkdir */
@@ -56,6 +57,8 @@ const char *cts_test_item_str(int test_item)
 
 #define RAWDATA_BUFFER_SIZE(cts_dev) \
     (cts_dev->hwdata->num_row * cts_dev->hwdata->num_col * 2)
+
+extern PT_SelftestData selftestdata;
 
 int disable_fw_esd_protection(struct cts_device *cts_dev)
 {
@@ -617,7 +620,7 @@ static int validate_tsdata(struct cts_device *cts_dev, const char *desc, u16 *da
 #undef SPLIT_LINE_STR
 }
 
-static int wait_fw_to_normal_work(struct cts_device *cts_dev)
+int wait_fw_to_normal_work(struct cts_device *cts_dev)
 {
     int i = 0;
     int ret;
@@ -1313,7 +1316,8 @@ unlock:
         ret = validate_tsdata(cts_dev, "Noise test", noise, param->invalid_nodes,
             param->num_invalid_node, validate_data_per_node, param->min, param->max);
     }
-
+	if (selftestdata->noisedata != NULL)
+			memcpy(selftestdata->noisedata, noise, RAWDATA_BUFFER_SIZE(cts_dev));
 free_mem:
     if (buffer) {
         kfree(buffer);

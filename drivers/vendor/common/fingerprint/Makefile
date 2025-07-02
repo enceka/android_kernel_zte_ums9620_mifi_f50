@@ -11,6 +11,9 @@ endif
 obj-$(CONFIG_ZTE_PLATFORM_FINGERPRINT) += zte_fp.o
 zte_fp-y := zte_fp_entry.o
 
+########### zte_fp_debug ###############
+zte_fp-y += zte_fp_debug.o
+
 ########### cdfinger ###############
 zte_fp-$(CONFIG_PLATFORM_FINGERPRINT_CDFINGER)  += \
 	cdfinger/cdfinger_tee.o

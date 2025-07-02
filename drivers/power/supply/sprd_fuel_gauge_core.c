@@ -598,7 +598,7 @@ static int sprd_fgu_capacity_remap(struct sprd_fgu_data *data, int fuel_cap)
 
 		if (i == data->cap_remap_table_len - 1 && temp > data->cap_remap_table[i].hb)
 			cap = DIV_ROUND_CLOSEST((temp - data->cap_remap_table[i].hb), 100)
-				+ data->cap_remap_table[i].hcap;
+				+ data->cap_remap_table[i].hcap * 10;
 
 	}
 

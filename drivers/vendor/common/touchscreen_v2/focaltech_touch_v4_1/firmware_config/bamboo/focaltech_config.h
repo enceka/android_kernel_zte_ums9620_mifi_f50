@@ -288,6 +288,7 @@
 
 #define FTS_HI_RES_X_MAX                    16
 
+#define FTS_THREE_IN_ONE                        0
 
 #define FTS_REPORT_BY_ZTE_ALGO
 

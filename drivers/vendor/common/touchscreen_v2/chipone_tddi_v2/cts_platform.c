@@ -7,6 +7,10 @@
 #include "cts_sysfs.h"
 #include "cts_tcs.h"
 
+#ifdef CONFIG_CTS_TP_PROXIMITY
+extern bool cts_is_proximity_enable(struct cts_device *cts_dev);
+#endif
+
 #ifdef CFG_CTS_FW_LOG_REDIRECT
 size_t cts_plat_get_max_fw_log_size(struct cts_platform_data *pdata)
 {
@@ -57,7 +61,9 @@ int cts_plat_i2c_write(struct cts_platform_data *pdata, u8 i2c_addr,
 			return 0;
 		}
 	} while (++retries < retry);
-
+	if (retries >= retry) {
+		tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
+	}
     return ret;
 }
 
@@ -105,7 +111,9 @@ int cts_plat_i2c_read(struct cts_platform_data *pdata, u8 i2c_addr,
 			return 0;
 		}
 	} while (++retries < retry);
-
+    if (retries >= retry) {
+        tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
+    }
     return ret;
 }
 
@@ -274,6 +282,9 @@ int cts_plat_spi_write(struct cts_platform_data *pdata, u8 dev_addr,
                 return 0;
 			}
         } while (++retries < retry);
+        if (retries >= retry) {
+            tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
+		}
     }
     return ret;
 }
@@ -320,6 +331,10 @@ int cts_plat_spi_read(struct cts_platform_data *pdata, u8 dev_addr,
 			}
 			return 0;
 		} while (++retries < retry);
+        if (retries >= retry) {
+            cts_err("SPI read too much retry");
+            tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
+        }
 #else
         pdata->spi_tx_buf[0] = dev_addr | 0x01;
         memcpy(&pdata->spi_tx_buf[1], wbuf, wlen);
@@ -336,6 +351,10 @@ int cts_plat_spi_read(struct cts_platform_data *pdata, u8 dev_addr,
             memcpy(rbuf, pdata->spi_rx_buf + 5, rlen);
             return 0;
         } while (++retries < retry);
+        if (retries >= retry) {
+            cts_err("SPI read too much retry");
+            tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
+        }
 #endif
     } else {
         do {
@@ -380,6 +399,7 @@ int cts_plat_spi_read(struct cts_platform_data *pdata, u8 dev_addr,
         } while (++retries < retry);
     }
 	if (retries >= retry) {
+        tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
         cts_err("SPI read too much retry");
 	}
 
@@ -425,6 +445,10 @@ int cts_plat_spi_read_delay_idle(struct cts_platform_data *pdata, u8 dev_addr,
             }
             return 0;
         } while (++retries < retry);
+        if (retries >= retry) {
+            tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
+            cts_err("SPI read too much retry");
+        }
 #else
         pdata->spi_tx_buf[0] = dev_addr | 0x01;
         memcpy(&pdata->spi_tx_buf[1], wbuf, wlen);
@@ -441,6 +465,10 @@ int cts_plat_spi_read_delay_idle(struct cts_platform_data *pdata, u8 dev_addr,
             memcpy(rbuf, pdata->spi_rx_buf + 5, rlen);
             return 0;
         } while (++retries < retry);
+        if (retries >= retry) {
+            tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
+            cts_err("SPI read too much retry");
+        }
 #endif
     } else {
         do {
@@ -481,6 +509,7 @@ int cts_plat_spi_read_delay_idle(struct cts_platform_data *pdata, u8 dev_addr,
         } while (++retries < retry);
     }
 	if (retries >= retry) {
+        tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
         cts_err("cts_plat_spi_read error");
 	}
 
@@ -933,7 +962,6 @@ int cts_plat_enable_irq(struct cts_platform_data *pdata)
     if (pdata->irq > 0) {
         spin_lock_irqsave(&pdata->irq_lock, irqflags);
         if (pdata->irq_is_disable) {/* && !cts_is_device_suspended(pdata->chip)) */
-            cts_dbg("Real enable IRQ");
             enable_irq(pdata->irq);
             pdata->irq_is_disable = false;
         }
@@ -954,7 +982,6 @@ int cts_plat_disable_irq(struct cts_platform_data *pdata)
     if (pdata->irq > 0) {
         spin_lock_irqsave(&pdata->irq_lock, irqflags);
         if (!pdata->irq_is_disable) {
-            cts_dbg("Real disable IRQ");
             disable_irq_nosync(pdata->irq);
             pdata->irq_is_disable = true;
         }
@@ -981,6 +1008,9 @@ int cts_plat_reset_device(struct cts_platform_data *pdata)
     gpio_set_value(pdata->rst_gpio, 1);
     mdelay(40);
 
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+	tpd_cdev->tp_reset_timer = jiffies;
+#endif
     return 0;
 }
 
@@ -1100,7 +1130,16 @@ int cts_plat_process_touch_msg(struct cts_platform_data *pdata,
         case CTS_DEVICE_TOUCH_EVENT_STAY:
             contact++;
 #ifdef CTS_REPORT_BY_ZTE_ALGO
+		if (tpd_cdev->zte_tp_algo) {
 			tpd_touch_press(input_dev, x, y, msgs[i].id, 0, 0);
+		} else {
+			input_mt_slot(input_dev, msgs[i].id);
+			input_mt_report_slot_state(input_dev, MT_TOOL_FINGER, true);
+			input_report_abs(input_dev, ABS_MT_POSITION_X, x);
+			input_report_abs(input_dev, ABS_MT_POSITION_Y, y);
+			input_report_abs(input_dev, ABS_MT_TOUCH_MAJOR, msgs[i].pressure);
+			input_report_abs(input_dev, ABS_MT_PRESSURE, msgs[i].pressure);
+		}
 #else
             input_mt_slot(input_dev, msgs[i].id);
             input_mt_report_slot_state(input_dev, MT_TOOL_FINGER, true);
@@ -1155,7 +1194,12 @@ int cts_plat_process_touch_msg(struct cts_platform_data *pdata,
     for (i = 0; i < CFG_CTS_MAX_TOUCH_NUM; i++) {
         if (finger_last[i] != 0 && finger_current[i] == 0) {
 #ifdef CTS_REPORT_BY_ZTE_ALGO
+		if (tpd_cdev->zte_tp_algo) {
 			tpd_touch_release(input_dev, i);
+		} else {
+			input_mt_slot(input_dev, i);
+			input_mt_report_slot_state(input_dev, MT_TOOL_FINGER, false);
+		}
 #else
             input_mt_slot(input_dev, i);
             input_mt_report_slot_state(input_dev, MT_TOOL_FINGER, false);
@@ -1210,6 +1254,14 @@ int cts_plat_release_all_touch(struct cts_platform_data *pdata)
 
     cts_info("Release all touch");
 
+#ifdef CONFIG_CTS_TP_PROXIMITY
+    if(cts_is_proximity_enable(pdata->cts_dev))
+    {
+        cts_info("cts_plat_release_all_touch proximity mode return.\n");
+        return 0;
+    }
+#endif
+
 #ifdef CONFIG_CTS_SLOTPROTOCOL
     for (id = 0; id < CFG_CTS_MAX_TOUCH_NUM; id++) {
         input_mt_slot(input_dev, id);
@@ -1222,7 +1274,8 @@ int cts_plat_release_all_touch(struct cts_platform_data *pdata)
 #endif /* CONFIG_CTS_SLOTPROTOCOL */
     input_sync(input_dev);
 #ifdef CTS_REPORT_BY_ZTE_ALGO
-	tpd_clean_all_event();
+	if (tpd_cdev->zte_tp_algo)
+		tpd_clean_all_event();
 #endif
 
     return 0;

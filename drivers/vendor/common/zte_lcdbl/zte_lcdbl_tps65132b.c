@@ -107,6 +107,9 @@ void tps65132b_set_vsp_vsn_level(u8 level)
 #ifdef CONFIG_ZTE_LCDBL_I2C_CTRL_VSP_VSN_ENHANCE
 	u8 buf_apps[2] = {0x03, 0x43};
 #endif
+#ifdef CONFIG_ZTE_LCDBL_I2C_CTRL_VSP_VSN_200MA_ENHANCE
+	u8 buf_apps2[2] = {0x04, 0x09};
+#endif
 
 	/*pr_info("tps65132b probe=%d\n", ti65132b_probe);*/
 	if (ti65132b_probe) {
@@ -132,6 +135,10 @@ void tps65132b_set_vsp_vsn_level(u8 level)
 			tps65132b_write_reg(i2c_tps65132b_client, buf_apps, 1);
 		}
 	}
+#endif
+#ifdef CONFIG_ZTE_LCDBL_I2C_CTRL_VSP_VSN_200MA_ENHANCE
+	pr_info("%s: set enhance value as 200ma\n", __func__);
+	tps65132b_write_reg(i2c_tps65132b_client, buf_apps2, 1);
 #endif
 		usleep_range(5000, 5100);
 	}

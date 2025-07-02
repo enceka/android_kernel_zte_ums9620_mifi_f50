@@ -11,6 +11,18 @@
 #include "cts_earjack_detect.h" */
 #include "cts_tcs.h"
 
+#ifdef CONFIG_CTS_TP_PROXIMITY
+struct cts_device *cts_dev_proximity;
+#ifdef CONFIG_PM_WAKELOCKS
+#include <linux/pm_wakeup.h>
+#else
+#include <linux/wakelock.h>
+#endif
+
+extern struct wakeup_source *tp_wakeup;
+unsigned int firstPowerCall = 1;
+bool cts_is_proximity_enable(struct cts_device *cts_dev);
+#endif
 
 #ifdef CONFIG_CTS_I2C_HOST
 static int cts_i2c_writeb(const struct cts_device *cts_dev,
@@ -1255,7 +1267,7 @@ int cts_send_command(const struct cts_device *cts_dev, u8 cmd)
     return cts_fw_reg_writeb_retry(cts_dev, CTS_DEVICE_FW_REG_CMD, cmd, 3, 0);
 }
 
-static int cts_get_touchinfo(struct cts_device *cts_dev,
+int cts_get_touchinfo(struct cts_device *cts_dev,
         struct cts_device_touch_info *touch_info)
 {
     cts_dbg("Get touch info");
@@ -1771,6 +1783,129 @@ void cts_show_fw_log(struct cts_device *cts_dev)
 }
 #endif
 
+#if defined (HUB_TP_PS_ENABLE) && ( HUB_TP_PS_ENABLE== 1)
+static struct class ps_sensor_class = {
+	.name = "tp_ps",
+	.owner = THIS_MODULE,
+};
+
+static ssize_t delay_show(struct class *class,
+		struct class_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, 8, "%d\n", 200);
+}
+
+static ssize_t delay_store(struct class *class,
+		struct class_attribute *attr,
+		const char *buf, size_t count)
+{
+	return count;
+}
+
+static CLASS_ATTR_RW(delay);
+
+
+static ssize_t enable_show(struct class *class,
+		struct class_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, 64, "%d\n", cts_dev_proximity->rtdata.fw_status.proximity);
+}
+
+static ssize_t enable_store(struct class *class,
+		struct class_attribute *attr,
+		const char *buf, size_t count)
+{
+	unsigned int enable;
+	u8 enabled;
+	int ret = 0;
+	int handle;
+    int i = 0;
+
+	cts_info("%s:enter", __func__);
+	ret = sscanf(buf, "%d %d\n", &handle, &enable);
+
+	if (ret != 2) {
+		cts_err("%s: sscanf tp_ps enable data error!!! ret = %d \n", __func__, ret);
+		return -EINVAL;
+	}
+
+	cts_lock_device(cts_dev_proximity);
+	enable = (enable > 0) ? 1 : 0;
+	cts_dev_proximity->rtdata.fw_status.proximity = enable;
+	cts_dev_proximity->rtdata.proximity_num = 0;
+	cts_dev_proximity->rtdata.proximity_status = false;
+	cts_dev_proximity->rtdata.proximity_suspended = false;
+	if (!cts_dev_proximity->rtdata.suspended && tpd_cdev->fw_ready) {
+		do{
+			i++;
+			ret = cts_tcs_set_proximity_mode(cts_dev_proximity, enable);
+			if (ret) {
+				cts_err("Set proximity mode failed");
+			}
+			msleep(200);
+			cts_tcs_get_proximity_mode(cts_dev_proximity, &enabled);
+			cts_info("tp proximity reg is %d.", enabled);
+			if (enable == enabled) {
+				break;
+			}
+		} while(i < 3);
+	}
+
+	if (enable) {
+		change_psensor_state(ENABLE_PSENSOR);
+		/* init value far for vts test*/
+		input_report_abs(cts_dev_proximity->pdata->cts_proximity_input_dev, ABS_DISTANCE, 1);
+		input_sync(cts_dev_proximity->pdata->cts_proximity_input_dev);
+	} else {
+		change_psensor_state(DISABLE_PSENSOR);
+	}
+	cts_unlock_device(cts_dev_proximity);
+
+	return count;
+}
+
+static CLASS_ATTR_RW(enable);
+
+static ssize_t flush_show(struct class *class,
+		struct class_attribute *attr,
+		char *buf)
+{
+	return snprintf(buf, 64, "%d\n", cts_dev_proximity->rtdata.fw_status.proximity);
+}
+
+static ssize_t flush_store(struct class *class,
+		struct class_attribute *attr,
+		const char *buf, size_t count)
+{
+	static int flush_count = 0;
+
+    cts_info("enter %s", __func__);
+	if (flush_count % 2 == 0) {
+		input_report_abs(cts_dev_proximity->pdata->cts_proximity_input_dev, ABS_DISTANCE, -1);
+		flush_count = 1;
+	} else {
+		input_report_abs(cts_dev_proximity->pdata->cts_proximity_input_dev, ABS_DISTANCE, -2);
+		flush_count = 0;
+	}
+	/* input_mt_sync(data->ps_input_dev); */
+	input_sync(cts_dev_proximity->pdata->cts_proximity_input_dev);
+	return count;
+}
+
+static CLASS_ATTR_RW(flush);
+
+static ssize_t batch_store(struct class *class,
+		struct class_attribute *attr,
+		const char *buf, size_t count)
+{
+	return count;
+}
+
+static CLASS_ATTR_WO(batch);
+#endif
+
 #ifdef CONFIG_CTS_TP_PROXIMITY
 bool cts_is_proximity_enable(struct cts_device *cts_dev)
 {
@@ -1782,10 +1917,10 @@ int cts_enter_proximity_mode(struct cts_device *cts_dev)
     return cts_tcs_set_proximity_mode(cts_dev, 1);
 }
 
-int cts_exit_proximity_mode(struct cts_device *cts_dev)
+/* int cts_exit_proximity_mode(struct cts_device *cts_dev)
 {
     return cts_tcs_set_proximity_mode(cts_dev, 0);
-}
+} */
 
 void cts_handle_proximity_event(bool status)
 {
@@ -1800,23 +1935,60 @@ int cts_irq_handler(struct cts_device *cts_dev)
     u8 pwrmode = 3;
 #endif /* CFG_CTS_GESTURE */
 	int ret;
+#ifdef CONFIG_CTS_ESD_PROTECTION
+    struct chipone_ts_data *cts_data =
+        container_of(cts_dev, struct chipone_ts_data, cts_dev);
+#endif
 
-    cts_dbg("Enter IRQ handler");
+	cts_dbg("Enter IRQ handler");
+#ifdef CONFIG_CTS_TP_PROXIMITY
+	if (cts_is_proximity_enable(cts_dev)) {
+		if (tpd_cdev->ztp_pm_suspend) {
+			cts_info("enter %s, ztp_pm_suspend is true", __func__);
+			ret = wait_for_completion_timeout(&tpd_cdev->ztp_pm_completion, msecs_to_jiffies(700));
+			if (!ret) {
+				cts_err("Warning:still in pm_suspend(deep) and has timeout 700ms, skip irq");
+				return IRQ_HANDLED;
+			}
+			cts_info("%s wait for PM resume completion success", __func__);
+		}
+        __pm_wakeup_event(tp_wakeup, 2000);
+	}
+#endif
 
-    if (cts_dev->rtdata.program_mode) {
-        cts_err("IRQ triggered in program mode");
-        return -EINVAL;
-    }
-    if (tpd_cdev->ignore_tp_irq)
+	if (!cts_dev->rtdata.int_data && cts_is_device_enabled(cts_dev)) {
+		ret = cts_init_fwdata(cts_dev);
+		if (ret) {
+			cts_err("Device init firmware data failed %d", ret);
+			return ret;
+		} else if (!cts_dev->rtdata.int_data) {
+			cts_err("irq enter,int_data is NULL");
+			return ret;
+		}
+	}
+	if (cts_dev->rtdata.program_mode) {
+		cts_err("IRQ triggered in program mode");
+		return -EINVAL;
+	}
+	if (tpd_cdev->ignore_tp_irq)
 		return -EINVAL;
 
-    touch_info = &cts_dev->rtdata.touch_info;
-    ret = cts_get_touchinfo(cts_dev, touch_info);
-    if (ret) {
-        cts_err("Get touch info failed %d", ret);
-        return ret;
-    }
-
+	touch_info = &cts_dev->rtdata.touch_info;
+	ret = cts_get_touchinfo(cts_dev, touch_info);
+#ifdef CONFIG_CTS_ESD_PROTECTION
+	if (ret) {
+		cts_err("Get touch info failed %d", ret);
+		cts_data->get_touchinfo_fail_cnt++;
+		return ret;
+	} else {
+		cts_data->get_touchinfo_fail_cnt = 0;
+	}
+#else
+	if (ret) {
+		cts_err("Get touch info failed %d", ret);
+		return ret;
+	}
+#endif
     if (unlikely(cts_dev->rtdata.suspended)) {
 #ifdef CFG_CTS_GESTURE
         if (cts_dev->rtdata.gesture_wakeup_enabled) {
@@ -1858,22 +2030,43 @@ int cts_irq_handler(struct cts_device *cts_dev)
 #ifdef CONFIG_CTS_TP_PROXIMITY
         if (cts_is_proximity_enable(cts_dev)) {
             cts_dbg("proximity status:%d", cts_dev->rtdata.proximity_status);
+            cts_dbg("touch_info->vkey_state:0x%x", touch_info->vkey_state);
+            cts_dbg("rtdata.suspended:%d", cts_dev->rtdata.proximity_suspended);
             if (!cts_dev->rtdata.proximity_status
-            && touch_info->vkey_state == CTS_CMD_PROXIMITY_STATUS) {
+            && touch_info->vkey_state == CTS_CMD_PROXIMITY_STATUS
+            && !cts_dev->rtdata.proximity_suspended) {
                 cts_dev->rtdata.proximity_num++;
                 if (cts_dev->rtdata.proximity_num == 4) {
                     cts_dev->rtdata.proximity_num = 0;
                     cts_dev->rtdata.proximity_status = true;
                     cts_handle_proximity_event(true);
+                    change_psensor_state(PSENSOR_BEGIN_SUSPEND);
+                    if(firstPowerCall) {
+                    	firstPowerCall = 0;
+						input_report_abs(cts_dev->pdata->cts_proximity_input_dev, ABS_DISTANCE, 0);
+						input_sync(cts_dev->pdata->cts_proximity_input_dev);
+						input_report_abs(cts_dev->pdata->cts_proximity_input_dev, ABS_DISTANCE, 1);
+						input_sync(cts_dev->pdata->cts_proximity_input_dev);
+                    }
+					input_report_abs(cts_dev->pdata->cts_proximity_input_dev, ABS_DISTANCE, 0);
+					input_sync(cts_dev->pdata->cts_proximity_input_dev);
                     return 0;
                 }
-            } else if (cts_dev->rtdata.proximity_status
-            && (touch_info->vkey_state == 0)) {
+            } else if ((touch_info->vkey_state == 0)
+            && cts_dev->rtdata.proximity_suspended) {
                 cts_dev->rtdata.proximity_num = 0;
-                cts_dev->rtdata.proximity_status = false;
                 cts_handle_proximity_event(false);
+                input_report_abs(cts_dev->pdata->cts_proximity_input_dev, ABS_DISTANCE, 1);
+		        input_sync(cts_dev->pdata->cts_proximity_input_dev);
+#ifdef CONFIG_TOUCHSCREEN_POINT_REPORT_CHECK
+	            cancel_delayed_work_sync(&tpd_cdev->point_report_check_work);
+	            queue_delayed_work(tpd_cdev->tpd_report_wq, &tpd_cdev->point_report_check_work, msecs_to_jiffies(150));
+#endif
                 cts_plat_release_all_touch(cts_dev->pdata);
+                cts_dev->rtdata.proximity_suspended = false;
                 return 0;
+            } else {
+                cts_dbg("cant meet condition in proximity");
             }
         }
 #endif
@@ -1907,6 +2100,16 @@ int cts_suspend_device(struct cts_device *cts_dev)
     u8 buf;
 
     cts_info("Suspend device");
+
+#ifdef CONFIG_CTS_TP_PROXIMITY
+	if(cts_is_proximity_enable(cts_dev))
+	{
+		cts_info("Suspend device proximity_enable :%d\n", cts_is_proximity_enable(cts_dev));
+		cts_info("%s proximity mode suspend return. \n", __func__);
+		cts_dev->rtdata.proximity_suspended = true;
+		return 0;
+	}
+#endif
 
 /* Disable this check for sleep/gesture switch */
 /*
@@ -1949,6 +2152,17 @@ int cts_resume_device(struct cts_device *cts_dev)
 #endif
 
     cts_info("Resume device");
+
+#ifdef CONFIG_CTS_TP_PROXIMITY
+    if(cts_is_proximity_enable(cts_dev) && !cts_dev->rtdata.suspended) {
+        cts_info("%s proximity resume proximity_enable:%d\n", __func__, cts_is_proximity_enable(cts_dev));
+        cts_enter_proximity_mode(cts_dev);
+        change_psensor_state(PSENSOR_BEGIN_RESUME);
+        msleep(50);
+        cts_dev->rtdata.proximity_status = false;
+        return 0;
+    }
+#endif
 
     /* Check whether device is in normal mode */
     while (--retries >= 0) {
@@ -2074,6 +2288,7 @@ static inline void cts_init_rtdata_with_normal_mode(struct cts_device *cts_dev)
 #ifdef CONFIG_CTS_TP_PROXIMITY
     cts_dev->rtdata.proximity_num = 0;
     cts_dev->rtdata.proximity_status = false;
+    cts_dev->rtdata.proximity_suspended = false;
 #endif
 }
 
@@ -2341,6 +2556,15 @@ int cts_stop_device(struct cts_device *cts_dev)
 
     cts_info("Stop device...");
 
+#ifdef CONFIG_CTS_TP_PROXIMITY
+    if(cts_is_proximity_enable(cts_dev))
+    {
+        cts_info("cts_stop_device proximity_enable:%d\n",cts_is_proximity_enable(cts_dev));
+        cts_info("cts_stop_device proximity mode return.\n");
+        return 0;
+    }
+#endif
+
     if (!cts_is_device_enabled(cts_dev)) {
         cts_warn("Stop device while halted");
         return 0;
@@ -2579,6 +2803,79 @@ err_out:
     return ret;
 }
 
+#ifdef CONFIG_CTS_TP_PROXIMITY
+int cts_psensor_init(struct cts_device *cts_dev)
+{
+    int ret = 0;
+
+    cts_dev_proximity = cts_dev;
+    cts_dev->pdata->cts_proximity_input_dev = input_allocate_device();
+    if (!cts_dev->pdata->cts_proximity_input_dev ) {
+		cts_info("%s: cts_proximity_input_dev allocate failed\n", __func__);
+		return -ENODEV;
+	}
+	cts_info("%s:cts_proximity_input_dev allocate success\n", __func__);
+	input_set_drvdata(cts_dev->pdata->cts_proximity_input_dev, cts_dev->pdata);
+	cts_dev->pdata->cts_proximity_input_dev->name = CFG_CTS_TP_PS_INPUT_DEV_NAME;
+	cts_dev->pdata->cts_proximity_input_dev->phys = CFG_CTS_TP_PS_INPUT_DEV_NAME;
+
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+	/*add class sysfs for tp_ps*/
+	ret = class_register(&ps_sensor_class);
+	if (ret < 0) {
+		cts_err("%s,Create fsys class failed (%d)\n", __func__, ret);
+		goto err_class_create;
+	}
+
+	ret = class_create_file(&ps_sensor_class, &class_attr_delay);
+	if (ret < 0) {
+		cts_err("%s, Create delay file failed (%d)\n", __func__, ret);
+		goto exit_unregister_class;
+	}
+
+	ret = class_create_file(&ps_sensor_class, &class_attr_enable);
+	if (ret < 0) {
+		cts_err("%s, Create enable file failed (%d)\n", __func__, ret);
+		goto exit_unregister_class;
+	}
+
+	ret = class_create_file(&ps_sensor_class, &class_attr_flush);
+	if (ret < 0) {
+		cts_err("%s, Create flush file failed (%d)\n", __func__, ret);
+		goto exit_unregister_class;
+	}
+
+	ret = class_create_file(&ps_sensor_class, &class_attr_batch);
+	if (ret < 0) {
+		cts_err("%s, Create batch file failed (%d)\n", __func__, ret);
+		goto exit_unregister_class;
+	}
+#endif
+
+	input_set_capability(cts_dev->pdata->cts_proximity_input_dev, EV_ABS, ABS_DISTANCE);
+	input_set_abs_params(cts_dev->pdata->cts_proximity_input_dev, ABS_DISTANCE, 0, 1, 0, 0);
+    cts_info("%s:cts_proximity_input_dev input set success\n", __func__);
+	ret = input_register_device(cts_dev->pdata->cts_proximity_input_dev);
+    if (ret) {
+	    cts_info("%s: input_register_device failed\n", __func__);
+        goto exit_register_ps_device_failed;
+	}
+
+    return 0;
+
+#if defined (HUB_TP_PS_ENABLE) && (HUB_TP_PS_ENABLE == 1)
+exit_unregister_class:
+	cts_info("unregister tp_ps_sensor_class.\n");
+	class_unregister(&ps_sensor_class);
+err_class_create:
+#endif
+exit_register_ps_device_failed:
+	input_free_device(cts_dev->pdata->cts_proximity_input_dev);
+
+    return ret;
+}
+#endif
+
 int cts_probe_device(struct cts_device *cts_dev)
 {
     int ret, retries = 0;
@@ -2634,6 +2931,10 @@ init_hwdata:
         cts_err("Device hwid: %06x fwid: %04x not found", hwid, fwid);
         return -ENODEV;
     }
+
+#ifdef CONFIG_CTS_TP_PROXIMITY
+    ret = cts_psensor_init(cts_dev);
+#endif
 
     cts_info("Touch info size:%zu", sizeof(struct cts_device_touch_info));
 
@@ -2755,31 +3056,42 @@ static void cts_esd_protection_work(struct work_struct *work)
 				cts_err("ESD protection reset chip failed %d", ret);
 			}
 #ifdef CONFIG_CTS_CHARGER_DETECT
-		if (cts_is_charger_exist(&cts_data->cts_dev)) {
-			int r = cts_charger_plugin(&cts_data->cts_dev);
-
-			if (r) {
-				cts_err("Set dev charger attached failed %d", r);
+			if (cts_is_charger_exist(&cts_data->cts_dev)) {
+				int r = cts_charger_plugin(&cts_data->cts_dev);
+				if (r) {
+					cts_err("Set dev charger attached failed %d", r);
+				}
 			}
-		}
 #endif /* CONFIG_CTS_CHARGER_DETECT */
 
 #ifdef CFG_CTS_HEADSET_DETECT
-		if (cts_data->headset_mode) {
-			cts_earphone_plugin(&cts_data->cts_dev);
-		} else {
-			cts_earphone_plugout(&cts_data->cts_dev);
-		}
+			if (cts_data->headset_mode) {
+				cts_earphone_plugin(&cts_data->cts_dev);
+			} else {
+				cts_earphone_plugout(&cts_data->cts_dev);
+			}
+#endif
+
+#ifdef CONFIG_CTS_TP_PROXIMITY
+			if (cts_is_proximity_enable(&cts_data->cts_dev)) {
+				ret = cts_tcs_set_proximity_mode(&cts_data->cts_dev, 1);
+				if (ret) {
+					cts_err("ESD protection set proximity mode failed");
+				}
+			}
 #endif
 		}
     } else {
         cts_data->esd_check_fail_cnt = 0;
+        cts_data->get_touchinfo_fail_cnt = 0;
 	}
 
-    if (cts_data->esd_check_fail_cnt >= CFG_CTS_ESD_FAILED_CONFIRM_CNT) {
+    if ((cts_data->esd_check_fail_cnt >= CFG_CTS_ESD_FAILED_CONFIRM_CNT)
+		|| (cts_data->get_touchinfo_fail_cnt > 20)) {
         const struct cts_firmware *firmware;
 
         cts_warn("ESD protection check failed, update firmware!!!");
+        tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
         cts_stop_device_esdrecover(&cts_data->cts_dev);
         firmware = cts_request_firmware(&cts_data->cts_dev,
             cts_data->cts_dev.hwdata->hwid, cts_data->cts_dev.hwdata->fwid, 0);
@@ -2797,6 +3109,7 @@ static void cts_esd_protection_work(struct work_struct *work)
 
         cts_start_device_esdrecover(&cts_data->cts_dev);
         cts_data->esd_check_fail_cnt = 0;
+        cts_data->get_touchinfo_fail_cnt = 0;
     }
     queue_delayed_work(cts_data->esd_workqueue, &cts_data->esd_work,
         CFG_CTS_ESD_PROTECTION_CHECK_PERIOD);
@@ -2811,6 +3124,7 @@ void cts_enable_esd_protection(struct chipone_ts_data *cts_data)
 
         cts_data->esd_enabled = true;
         cts_data->esd_check_fail_cnt = 0;
+        cts_data->get_touchinfo_fail_cnt = 0;
         queue_delayed_work(cts_data->esd_workqueue,
                 &cts_data->esd_work,
                 CFG_CTS_ESD_PROTECTION_CHECK_PERIOD);
@@ -2836,6 +3150,7 @@ void cts_init_esd_protection(struct chipone_ts_data *cts_data)
 
     cts_data->esd_enabled = false;
     cts_data->esd_check_fail_cnt = 0;
+    cts_data->get_touchinfo_fail_cnt = 0;
 }
 
 void cts_deinit_esd_protection(struct chipone_ts_data *cts_data)
@@ -3088,7 +3403,7 @@ int cts_earphone_plugout(struct cts_device *cts_dev)
 	int ret;
 
 	cts_info("Earphone plugout");
-	cts_dev->rtdata.charger_exist = false;
+
 	/* ret = cts_dev->ops->set_earphone_state(cts_dev,0); */
     ret = cts_tcs_set_earjack_plug(cts_dev, 0);
 	if (ret) {
@@ -3323,6 +3638,7 @@ void cts_firmware_upgrade_work(struct work_struct *work)
     cts_dev = &cts_data->cts_dev;
 
     cts_lock_device(cts_dev);
+    tpd_cdev->fw_ready = false;
     firmware = cts_request_firmware(cts_dev, cts_dev->hwdata->hwid,
             CTS_DEV_FWID_ANY, cts_dev->fwdata.version);
     if (firmware == NULL) {
@@ -3330,6 +3646,9 @@ void cts_firmware_upgrade_work(struct work_struct *work)
         /* With flash, do not update. */
         cts_set_program_addr(cts_dev);
         cts_enter_normal_mode(cts_dev);
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+        tpd_cdev->ic_tpinfo.firmware_ver = cts_dev->fwdata.version;
+#endif
         goto end;
     }
 
@@ -3339,16 +3658,26 @@ void cts_firmware_upgrade_work(struct work_struct *work)
         if (ret) {
             cts_err("Update firmware failed times: %d", retries);
             cts_reset_device(cts_dev);
-        } else
+        } else {
+#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
+            ret = cts_tcs_get_fw_ver(cts_dev, &cts_dev->fwdata.version);
+            if (ret) {
+                cts_err("Read firmware version failed %d", ret);
+            }
+            tpd_cdev->ic_tpinfo.firmware_ver = cts_dev->fwdata.version;
+#endif
             break;
+        }
     } while (++retries < 3);
-
+    if (retries >=3) {
+        tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
+    }
     cts_release_firmware(firmware);
 
 end:
     if (ret == 0)
         cts_start_device(cts_dev);
-
+    tpd_cdev->fw_ready = true;
     cts_unlock_device(cts_dev);
 }
 
@@ -3488,8 +3817,7 @@ void cts_log(int level, const char *fmt, ...)
             cts_write_file(cts_log_filp, buf, count);
         }
     }
-
-    if (level < CTS_DRIVER_LOG_DEBUG || cts_show_debug_log) {
+    if (level < CTS_DRIVER_LOG_DEBUG || cts_show_debug_log || tpd_cdev->debug_log_enable) {
         vprintk(fmt, args);
     }
 

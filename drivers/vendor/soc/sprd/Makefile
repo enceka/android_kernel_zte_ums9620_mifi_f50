@@ -10,3 +10,7 @@ obj-y += board_state/
 obj-y += zte_boot_reason/
 obj-y += zte_uidip_debug/
 obj-y += bsp_exception_report/
+obj-y += beilu_gpio_ctl/
+obj-y += zsk_input/
+obj-y += hdbd_gps_gpio_ctl/
+obj-y += zte_ldo_leds/

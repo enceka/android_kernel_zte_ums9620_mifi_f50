@@ -46,7 +46,7 @@
 	#include <linux/of_gpio.h>
 #endif
 
-#define HIMAX_DRIVER_VER "3.0.0.3_Iris7_01"
+#define HIMAX_DRIVER_VER "3.0.0.3_Iris7_02"
 
 #define FLASH_DUMP_FILE "/sdcard/HX_Flash_Dump.bin"
 
@@ -129,6 +129,10 @@ extern char *g_fw_boot_upgrade_name;
 #define BOOT_UPGRADE_FWNAME himax_firmware_name
 extern char himax_firmware_name[];
 extern char hx_criteria_csv_name[];
+#ifdef HIMAX_DEFAULT_FIRMWARE
+extern char himax_default_firmware_name[];
+#define DEFAULT_UPDATE_FIRMWARE_NAME  himax_default_firmware_name
+#endif
 #if defined(HX_ZERO_FLASH)
 extern uint8_t *g_update_cfg_buf;
 extern char *g_fw_mp_upgrade_name;
@@ -536,7 +540,9 @@ struct himax_ts_data {
 #if defined(HX_ULTRA_LOW_POWER)
 	bool psensor_flag;
 #endif
-
+#ifdef HX_GET_NOISE
+	u8 *noise_buffer;
+#endif
 
 #if defined(HX_HIGH_SENSE)
 	uint8_t HSEN_enable;
@@ -545,10 +551,6 @@ struct himax_ts_data {
 #if defined(HX_USB_DETECT_GLOBAL)
 	uint8_t usb_connected;
 	uint8_t *cable_config;
-#endif
-
-#if defined(HX_HEADSET_MODE)
-	uint8_t headset_state;
 #endif
 
 #if defined(HX_TP_PROC_GUEST_INFO)

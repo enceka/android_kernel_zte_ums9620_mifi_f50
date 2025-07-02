@@ -763,7 +763,7 @@ static int save_selftest_data_to_file(struct cts_oem_data *oem_data)
     if (oem_data->test_noise) {
         ret = dump_tsdata_to_csv_file(OEM_NOISE_TEST_DATA_FILEPATH,
             O_RDWR | O_CREAT | O_TRUNC, oem_data->noise_test_data,
-            oem_data->noise_test_frames, rows, cols, hw_cols);
+            (oem_data->noise_test_frames + 3), rows, cols, hw_cols);
         if (ret < 0) {
             cts_err("Dump noise test data to file failed");
             return ret;

@@ -46,7 +46,7 @@ typedef enum {
  * default level is FF_LOG_LEVEL_ALL(all the logs will be output).
  */
 #ifndef __FF_EARLY_LOG_LEVEL
-#define __FF_EARLY_LOG_LEVEL FF_LOG_LEVEL_ALL
+#define __FF_EARLY_LOG_LEVEL FF_LOG_LEVEL_INF
 #endif
 
 /*

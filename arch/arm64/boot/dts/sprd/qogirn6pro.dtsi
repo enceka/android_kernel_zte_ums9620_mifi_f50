@@ -3438,6 +3438,13 @@
 		sprd,term-type = <0x1>;
 	};
 
+	sfp: sfp-unisoc {
+		compatible = "sprd,sfp";
+		sprd,sfp = <0>;
+		enable-pamwifi = <0>;
+		sprd,ipa-support = <1>;
+	};
+
 	sipa_dummy: sipa-dummy {
 		compatible = "sprd,sipa_dummy";
 	};

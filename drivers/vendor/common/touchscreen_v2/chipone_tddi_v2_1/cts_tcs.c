@@ -109,6 +109,9 @@ typedef struct {
 #define CMD_COORD_SWAP_AXES_EN_RW                  (0x6704)
 #define CMD_PARA_PROXI_EN_RW                       (0x692a)
 #define CMD_PARA_KUNCKLE_RW                        (0x694b)
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+#define CMD_GET_KUNCKLE_DATA_RO 					  (0x4124)
+#endif
 #define CMD_OPENSHORT_EN_RW                        (0x6b01)
 #define CMD_OPENSHORT_MODE_SEL_RW                  (0x6b02)
 #define CMD_OPENSHORT_SHORT_SEL_RW                 (0x6b03)
@@ -206,8 +209,8 @@ static int cts_tcs_i2c_read(const struct cts_device *cts_dev, u16 cmd,
         error_code = *(cts_dev->pdata->i2c_rbuf + size - 5);
         cmd_send = get_unaligned_le16(cts_dev->pdata->i2c_fifo_buf);
         cmd_recv = get_unaligned_le16(cts_dev->pdata->i2c_rbuf + size - 4);
-		if (error_code != 0) {
-			cts_err("error code:0x%02x, send %04x, %04x recv", error_code,
+        if (error_code != 0) {
+            cts_err("error code:0x%02x, send %04x, %04x recv", error_code,
                     cmd_send, cmd_recv);
             return -EIO;
         }
@@ -311,14 +314,15 @@ static int cts_tcs_spi_xtrans(const struct cts_device *cts_dev, u8 *tx,
     cmd_recv = get_unaligned_le16(rx +rxlen - 4);
     cmd_send = get_unaligned_le16(tx + 1);
     if (cmd_recv != cmd_send) {
-		cts_dbg("cmd check error, send %04x != %04x recv", cmd_send, cmd_recv);
-        /* return -EIO; */
+        cts_dbg("cmd check error, send %04x != %04x recv", cmd_send, cmd_recv);
+        // return -EIO;
     }
 
     crc16_recv = get_unaligned_le16(rx + rxlen - 2);
     crc16_calc = cts_crc16(rx, rxlen - 2);
-    if (crc16_recv != crc16_calc) {
+    if ((crc16_recv != crc16_calc) && tpd_cdev->fw_ready) {
         cts_err("crc error: recv %04x != %04x calc", crc16_recv, crc16_calc);
+        tpd_zlog_record_notify(TP_CRC_ERROR_NO);
         return -EIO;
     }
     udelay(100);
@@ -361,8 +365,8 @@ static int cts_tcs_spi_xtrans_1_cs(const struct cts_device *cts_dev, u8 *tx,
     cmd_recv = get_unaligned_le16(rx + rxlen - 4);
     cmd_send = get_unaligned_le16(tx + 1);
     if (cmd_recv != cmd_send) {
-		cts_dbg("cmd check error, send %04x != %04x recv", cmd_send, cmd_recv);
-        /* return -EIO; */
+        cts_dbg("cmd check error, send %04x != %04x recv", cmd_send, cmd_recv);
+        // return -EIO;
     }
 
     crc16_recv = get_unaligned_le16(rx + rxlen - 2);
@@ -460,7 +464,6 @@ static int cts_tcs_spi_read_1_cs(struct cts_device *cts_dev,
     }
     ret = cts_tcs_spi_xtrans_1_cs(cts_dev, cts_dev->pdata->spi_tx_buf, txlen,
             cts_dev->pdata->spi_rx_buf, rdatalen);
-    // dump_spi("<< ", cts_dev->pdata->spi_rx_buf, rdatalen + sizeof(tcs_rx_tail));
     if (ret) {
         return ret;
     }
@@ -592,6 +595,7 @@ int cts_tcs_get_res_y(const struct cts_device *cts_dev, u16 *res_y)
 
 int cts_tcs_get_rows(const struct cts_device *cts_dev, u8 *rows)
 {
+#if 0
     u8 buf[10] = { 0 };
     int ret;
 
@@ -600,10 +604,15 @@ int cts_tcs_get_rows(const struct cts_device *cts_dev, u8 *rows)
         *rows = buf[5];
     }
     return ret;
+#else
+    *rows = cts_dev->hwdata->num_row;
+    return 0;
+#endif
 }
 
 int cts_tcs_get_cols(const struct cts_device *cts_dev, u8 *cols)
 {
+#if 0
     u8 buf[10] = { 0 };
     int ret;
 
@@ -612,6 +621,10 @@ int cts_tcs_get_cols(const struct cts_device *cts_dev, u8 *cols)
         *cols = buf[4];
     }
     return ret;
+#else
+    *cols = cts_dev->hwdata->num_col;
+     return 0;
+#endif
 }
 
 int cts_tcs_get_flip_x(const struct cts_device *cts_dev, bool *flip_x)
@@ -780,9 +793,8 @@ int cts_tcs_write_hw_reg(const struct cts_device *cts_dev, u32 addr,
     int ret;
 
     buf = kmalloc(size + 6, GFP_KERNEL);
-    if (buf == NULL) {
+    if (buf == NULL)
         return -ENOMEM;
-    }
 
     buf[0] = ((size >> 0) & 0xFF);
     buf[1] = ((size >> 8) & 0xFF);
@@ -815,9 +827,8 @@ int cts_tcs_read_ddi_reg(const struct cts_device *cts_dev, u32 addr,
 
     ret = cts_tcs_write(cts_dev, CMD_TP_DATA_OFFSET_AND_TYPE_CFG_RW,
         buf, sizeof(buf));
-	if (ret != 0) {
+    if (ret != 0)
         return ret;
-	}
 
     ret = cts_tcs_read(cts_dev, CMD_TP_DATA_READ_START_RO, regbuf, size);
     if (ret != 0)
@@ -833,9 +844,8 @@ int cts_tcs_write_ddi_reg(const struct cts_device *cts_dev, u32 addr,
     int ret;
 
     buf = kmalloc(size + 6, GFP_KERNEL);
-    if (buf == NULL) {
+    if (buf == NULL)
         return -ENOMEM;
-    }
 
     buf[0] = ((size >> 0) & 0xFF);
     buf[1] = ((size >> 8) & 0xFF);
@@ -1161,8 +1171,9 @@ int cts_tcs_get_touchinfo(struct cts_device *cts_dev,
     size_t size = cts_dev->fwdata.int_data_size;
     int ret;
 
-    if (!size)
+    if (!size) {
         size = TOUCH_INFO_SIZ + TCS_REPLY_TAIL_SIZ;
+    }
 
     memset(touch_info, 0, sizeof(*touch_info));
 
@@ -1224,6 +1235,20 @@ int cts_tcs_set_openshort_mode(const struct cts_device *cts_dev, u8 mode)
 {
     return cts_tcs_write(cts_dev, CMD_OPENSHORT_MODE_SEL_RW, &mode,
             sizeof(mode));
+}
+
+int cts_tcs_get_curr_mode(const struct cts_device *cts_dev, u8 *currmode)
+{
+    u8 buf = 0;
+    int ret;
+
+    ret = cts_tcs_read(cts_dev, CMD_SYS_STS_CURRENT_WORKMODE_RO,
+            &buf, sizeof(buf));
+    if (ret == 0) {
+        *currmode = buf;
+    }
+
+    return ret;
 }
 
 int cts_tcs_set_tx_vol(const struct cts_device *cts_dev, u8 txvol)
@@ -1506,6 +1531,21 @@ int cts_tcs_set_knuckle_mode(struct cts_device *cts_dev, u8 enable)
 
     return ret;
 }
+
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+int cts_tcs_get_knuckle_mode(const struct cts_device *cts_dev, u8 *enable)
+{
+    u8 buf = 0;
+    int ret;
+
+    ret = cts_tcs_read(cts_dev, CMD_PARA_KUNCKLE_RW, &buf, sizeof(buf));
+    if (ret == 0) {
+        *enable = buf;
+    }
+
+    return ret;
+}
+#endif
 
 int cts_tcs_set_glove_mode(struct cts_device *cts_dev, u8 enable)
 {

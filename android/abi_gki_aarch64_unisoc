@@ -459,6 +459,7 @@
   kernel_kobj
   kernel_neon_begin
   kernel_neon_end
+  kernel_sock_shutdown
   kern_mount
   kern_unmount
   __kfifo_alloc
@@ -1949,6 +1950,7 @@
   unregister_netdev
 
 # required by sfp_core.ko
+  br_fdb_find_port
   csum_tcpudp_nofold
   dev_get_by_index_rcu
   ip_send_check
@@ -2792,6 +2794,7 @@
   freq_qos_remove_request
   freq_qos_update_request
   gpiod_set_value
+  in_aton
   memdup_user
   pci_disable_device
   pci_disable_msi

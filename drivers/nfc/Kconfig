@@ -62,3 +62,4 @@ source "drivers/nfc/st95hf/Kconfig"
 source "drivers/nfc/pn553/Kconfig"
 endmenu
 source "drivers/nfc/st54j/Kconfig"
+source "drivers/nfc/fm11tag/Kconfig"

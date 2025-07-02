@@ -60,11 +60,9 @@ int cts_plat_i2c_write(struct cts_platform_data *pdata, u8 i2c_addr,
 			return 0;
 		}
 	} while (++retries < retry);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		if (retries >= retry) {
 			tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
 		}
-#endif
 	return ret;
 }
 
@@ -114,11 +112,9 @@ int cts_plat_i2c_read(struct cts_platform_data *pdata, u8 i2c_addr,
 			return 0;
 		}
 	} while (++retries < retry);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		if (retries >= retry) {
-			tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
-		}
-#endif
+	if (retries >= retry) {
+		tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
+	}
 	return ret;
 }
 
@@ -238,11 +234,9 @@ int cts_plat_spi_write(struct cts_platform_data *pdata, u8 dev_addr,
 			}
 		} while (++retries < retry);
 	}
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		if (retries >= retry) {
-			tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
-		}
-#endif
+	if (retries >= retry) {
+		tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
+	}
 	return ret;
 }
 
@@ -319,9 +313,7 @@ int cts_plat_spi_read(struct cts_platform_data *pdata, u8 dev_addr,
 	}
 	if (retries >= retry) {
 		cts_err("SPI read too much retry");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
-#endif
 	}
 
 	return -EIO;
@@ -404,9 +396,7 @@ int cts_plat_spi_read_delay_idle(struct cts_platform_data *pdata, u8 dev_addr,
 		} while (++retries < retry);
 	}
 	if (retries >= retry) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
-#endif
 		cts_err("cts_plat_spi_read error");
 	}
 
@@ -499,10 +489,10 @@ static void cts_plat_touch_dev_irq_work(struct work_struct *work)
 static int cts_plat_irq_thread_fn(void *arg)
 {
 	struct cts_platform_data *pdata = (struct cts_platform_data *)arg;
+	struct sched_param param = { .sched_priority = 4 };
 
-	/* struct sched_param sched_param = { .sched_priority = 4 };	
-
-		sched_setscheduler(current, SCHED_RR, &sched_param); */
+	sched_setscheduler(current, SCHED_RR, &param);
+	cts_info("sched_priority = %d", param.sched_priority);
 	cts_info("IRQ thread start ...");
 	do {
 		set_current_state(TASK_INTERRUPTIBLE);

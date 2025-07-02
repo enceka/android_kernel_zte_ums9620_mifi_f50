@@ -296,6 +296,7 @@ static ssize_t diag_sysfs_data_show(struct file *data_file,
 
 		if (diag_hcd->ping.data_length == 0) {
 			readlen = 0;
+			UNLOCK_BUFFER(diag_hcd->ping);
 			goto exit;
 		}
 
@@ -315,6 +316,7 @@ static ssize_t diag_sysfs_data_show(struct file *data_file,
 
 		if (diag_hcd->pong.data_length == 0) {
 			readlen = 0;
+			UNLOCK_BUFFER(diag_hcd->pong);
 			goto exit;
 		}
 
@@ -554,14 +556,14 @@ static struct ovt_tcm_module_cb diag_module = {
 
 int diag_module_init(void)
 {
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
 
 	return ovt_tcm_add_module(&diag_module, true);
 }
 
 void diag_module_exit(void)
 {
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
 
 	ovt_tcm_add_module(&diag_module, false);
 	wait_for_completion(&diag_remove_complete);

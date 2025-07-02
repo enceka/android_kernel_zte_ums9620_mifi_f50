@@ -1411,9 +1411,7 @@ int ili_fw_upgrade(int op)
 
 		if (ilitek_tdd_fw_hex_open(op, pfw) < 0) {
 			ILI_ERR("Open hex file fail, try upgrade from ILI file\n");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			tpd_zlog_record_notify(TP_REQUEST_FIRMWARE_ERROR_NO);
-#endif
 			/*
 			 * Users might not be aware of a broken hex file when recovering
 			 * fw from ILI file. We should force them to check
@@ -1451,9 +1449,7 @@ int ili_fw_upgrade(int op)
 		} while (--retry > 0);
 
 		if (ret != UPDATE_PASS) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 			ILI_ERR("Failed to upgrade fw %d times, erasing flash\n", retry);
 			if (ilitek_tddi_fw_flash_erase(OFF) < 0)
 				ILI_ERR("Failed to erase flash\n");
@@ -1474,9 +1470,7 @@ int ili_fw_upgrade(int op)
 	} while (--retry > 0);
 
 	if (ret != UPDATE_PASS) {
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_FW_UPGRADE_ERROR_NO);
-#endif
 		ILI_ERR("Failed to upgrade fw %d times, erasing flash\n", retry);
 		if (ilitek_tddi_fw_flash_erase(OFF) < 0)
 			ILI_ERR("Failed to erase flash\n");

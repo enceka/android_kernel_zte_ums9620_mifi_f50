@@ -49,6 +49,7 @@ int cts_tcs_get_fw_id(const struct cts_device *cts_dev, u16 *fwid);
 int cts_tcs_get_workmode(const struct cts_device *cts_dev, u8 *workmode);
 int cts_tcs_set_workmode(const struct cts_device *cts_dev, u8 workmode);
 int cts_tcs_set_openshort_mode(const struct cts_device *cts_dev, u8 mode);
+int cts_tcs_get_curr_mode(const struct cts_device *cts_dev, u8 *currmode);
 int cts_tcs_set_tx_vol(const struct cts_device *cts_dev, u8 txvol);
 
 int cts_tcs_set_short_test_type(const struct cts_device *cts_dev, u8 short_type);
@@ -100,4 +101,8 @@ int cts_tcs_set_proximity_mode(struct cts_device *cts_dev, u8 enable);
 void cts_tcs_reinit_fw_status(struct cts_device *cts_dev);
 
 int cts_tcs_set_product_en(struct cts_device *cts_dev, u8 enable);
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+int cts_tcs_set_knuckle_mode(struct cts_device *cts_dev, u8 enable);
+int cts_tcs_get_knuckle_mode(const struct cts_device *cts_dev, u8 *enable);
+#endif
 #endif /* _CTS_TCS_H_ */

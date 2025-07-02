@@ -157,6 +157,7 @@ int cts_tcs_get_panel_direction(const struct cts_device *cts_dev, u8 *direction)
 int cts_tcs_set_game_mode(struct cts_device *cts_dev, u8 enable);
 int cts_tcs_get_game_mode(const struct cts_device *cts_dev, u8 *enabled);
 int cts_tcs_set_proximity_mode(struct cts_device *cts_dev, u8 enable);
+void cts_tcs_get_proximity_mode(const struct cts_device *cts_dev, u8 *enabled);
 void cts_tcs_reinit_fw_status(struct cts_device *cts_dev);
 
 enum TcsCmdIndex {

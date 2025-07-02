@@ -11,6 +11,9 @@
 #include <linux/spi/spi.h>
 #include <linux/platform_device.h>
 
+#define ZLOG_MOD_NAME	"[ZTE_LDD_FP]"
+#define ZLOG_VENDOR_NAME	"[GOODIX]"
+
 /**********************************************************/
 enum FP_MODE{
 	GF_IMAGE_MODE = 0,
@@ -28,11 +31,11 @@ typedef enum {
 	ALL_LOG,
 } fp_debug_level_t;
 
-static fp_debug_level_t g_debug_level = INFO_LOG;
+extern int zte_fp_log_level;
 
 #define gf_debug(level, fmt, args...) do { \
-			if (g_debug_level >= level) {\
-				pr_warn("[goodixfp_info] " fmt, ##args); \
+			if (zte_fp_log_level >= level) {\
+				pr_err("%s%s"fmt, ZLOG_MOD_NAME, ZLOG_VENDOR_NAME, ##args); \
 			} \
 		} while (0)
 

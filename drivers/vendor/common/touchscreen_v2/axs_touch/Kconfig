@@ -1,0 +1,13 @@
+#
+# AXS Touchscreen driver configuration
+#
+
+config TOUCHSCREEN_AXS
+    bool "AXS Touchscreen"
+    default n
+    help
+      Say Y here if you have AXS touch panel.
+      If unsure, say N.
+
+
+    

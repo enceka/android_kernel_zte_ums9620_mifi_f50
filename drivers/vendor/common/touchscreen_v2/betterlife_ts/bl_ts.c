@@ -79,11 +79,9 @@ int btl_i2c_write_read(struct i2c_client* client, unsigned char addr, unsigned c
 		}
 		break;
 	}
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		if (retry == 0) {
-			tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
-		}
-#endif
+	if (retry == 0) {
+		tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
+	}
 	return ret;
 }
 
@@ -110,10 +108,8 @@ int btl_i2c_write(struct i2c_client *client, unsigned char addr, unsigned char *
 		}
 		break;
 	}
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		if (retry == 0)
-			tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
-#endif
+	if (retry == 0)
+		tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
 	return ret;
 }
 
@@ -138,10 +134,8 @@ int btl_i2c_read(struct i2c_client *client, unsigned char addr, unsigned char *r
 		}
 		break;
 	}
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		if (retry == 0)
-			tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
-#endif
+	if (retry == 0)
+		tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
 	return ret;
 }
 
@@ -2022,16 +2016,12 @@ static void btl_esd_check_work(struct work_struct *work)
 	btl_i2c_unlock();
 	if (ret < 0) {
 		BTL_DEBUG("i2c module abnormal need recovery!\n");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
 		btl_esd_recovery(ts);
 	} else {
 		if (memcmp(ts->esd_value, buf, sizeof(buf)) == 0) {
 			BTL_DEBUG("IC abnormal need recovery!\n");
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-		tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
+			tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
 			btl_esd_recovery(ts);
 		}
 		memcpy(ts->esd_value, buf, sizeof((buf)));
@@ -2472,6 +2462,15 @@ static int touch_event_handler(void *unused)
 static irqreturn_t btl_ts_irq_handler(int irq, void *dev_id)
 {
 	struct btl_ts_data *ts = g_btl_ts;
+
+	if (tpd_cdev->bbat_test_enter) {
+		if (tpd_cdev->bbat_int_test == false) {
+			tpd_cdev->bbat_int_test = true;
+			complete(&tpd_cdev->bbat_test_completion);
+			BTL_DEBUG("%s tpd int BBAT test success", __func__);
+		}
+		return IRQ_HANDLED;
+	}
 
 #ifdef BTL_WAIT_QUEUE
 	ts->tpd_flag = 1;
@@ -3009,9 +3008,9 @@ static int btl_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 		goto ERR_CREATE_PROC;
 	}
 #endif
-	tpd_cdev->TP_have_registered = true;
 	tpd_cdev->tp_chip_id = TS_CHIP_BTL;
 	blt_tpd_register_fw_class();
+	tpd_cdev->TP_have_registered = true;
 	return 0;
 
 #if defined(BTL_APK_SUPPORT)
@@ -3109,10 +3108,7 @@ ERROR_PARSE_DT:
 #endif
 	g_btl_ts = NULL;
 	kfree(ts);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
-	if (tpd_cdev->tp_chip_id == TS_CHIP_BTL)
-		tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_BTL;
-#endif
+	tpd_cdev->ztp_probe_fail_chip_id = TS_CHIP_BTL;
 	return ret;
 }
 

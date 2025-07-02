@@ -1249,12 +1249,21 @@ static int sfp_parse_dt(struct device *dev)
 	int ret;
 	u32 data;
 	struct device_node *np = dev->of_node;
+	bool enable;
 
 	ret = of_property_read_u32(np, "sprd,sfp", &data);
 	if (ret) {
 		dev_err(dev, "read sprd,sfp fail ret %d\n", ret);
 		return ret;
 	}
+
+	enable = of_property_read_bool(np, "enable");
+	if (enable) {
+		dev_err(dev, "fail to read enable\n");
+		return enable;
+	}
+
+	set_sfp_enable(enable);
 
 	ret = of_property_read_u32(np, "enable-pamwifi", &data);
 	if (ret) {

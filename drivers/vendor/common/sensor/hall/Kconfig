@@ -1,0 +1,6 @@
+config HALL_SENSOR_AH1898
+	tristate "HALL_SENSOR_AH1898"
+		default n
+		help
+			Say Y here to build support for sensor hub new.
+			To compile this driver as a module, choose M here.

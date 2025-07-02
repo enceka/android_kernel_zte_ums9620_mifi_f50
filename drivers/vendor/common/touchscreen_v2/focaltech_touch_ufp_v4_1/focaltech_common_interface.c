@@ -41,7 +41,10 @@ extern int fts_ts_resume(struct device *dev);
 extern int fts_test_init_basicinfo(struct fts_test *tdata);
 extern int fts_test_entry(char *ini_file_name);
 extern int fts_ex_mode_switch(enum _ex_mode mode, u8 value);
-
+extern int fts_power_source_ctrl(struct fts_ts_data *ts_data, int enable);
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+int fts_set_roi_switch(u8 roi_switch);
+#endif
 
 struct tpvendor_t fts_vendor_info[] = {
 	{FTS_MODULE_ID, FTS_MODULE_NAME },
@@ -68,9 +71,11 @@ static int tpd_init_tpinfo(struct ztp_device *cdev)
 {
 	u8 fwver_in_chip = 0;
 	u8 vendorid_in_chip = 0;
+	u8 module_id = 0;
 	u8 chipid_in_chip = 0;
 	u8 lcdver_in_chip = 0;
 	u8 retry = 0;
+	struct fts_ts_data *ts_data = (struct fts_ts_data *)cdev->private;
 
 	if (fts_data->suspended) {
 		FTS_ERROR("fts tp in suspned");
@@ -82,6 +87,10 @@ static int tpd_init_tpinfo(struct ztp_device *cdev)
 		fts_read_reg(FTS_REG_VENDOR_ID, &vendorid_in_chip);
 		fts_read_reg(FTS_REG_FW_VER, &fwver_in_chip);
 		fts_read_reg(FTS_REG_LIC_VER, &lcdver_in_chip);
+        if (ts_data->ic_info.is_incell)
+            fts_read_reg(FTS_REG_MODULE_ID, &module_id);
+        else
+            fts_read_reg(FTS_REG_PANEL_ID, &module_id);
 		if ((chipid_in_chip != 0) && (vendorid_in_chip != 0) && (fwver_in_chip != 0)) {
 			FTS_DEBUG("chip_id = %x,vendor_id =%x,fw_version=%x,lcd_version=%x .\n",
 				  chipid_in_chip, vendorid_in_chip, fwver_in_chip, lcdver_in_chip);
@@ -96,7 +105,7 @@ static int tpd_init_tpinfo(struct ztp_device *cdev)
 	cdev->ic_tpinfo.chip_model_id = TS_CHIP_FOCAL;
 
 	cdev->ic_tpinfo.chip_part_id = chipid_in_chip;
-	cdev->ic_tpinfo.module_id = vendorid_in_chip;
+	cdev->ic_tpinfo.module_id = (int)((module_id << 8) + vendorid_in_chip);
 	cdev->ic_tpinfo.chip_ver = 0;
 	cdev->ic_tpinfo.firmware_ver = fwver_in_chip;
 	cdev->ic_tpinfo.display_ver = lcdver_in_chip;
@@ -228,9 +237,13 @@ static int fts_tp_fw_upgrade(struct ztp_device *cdev, char *fw_name, int fwname_
 {
 	struct fts_ts_data *ts_data = fts_data;
 	struct input_dev *input_dev = ts_data->input_dev;
+	int tp_time = 0;
 
 	mutex_lock(&input_dev->mutex);
+	tpd_cdev->ztp_time.tp_fw_upgrade_start_time = jiffies;
 	fts_upgrade_bin(NULL, 0);
+	tp_time = get_tp_consum_time(tpd_cdev->ztp_time.tp_fw_upgrade_start_time);
+	TPD_DMESG("tp_time fts fw upgrade time:%d.", tp_time);
 	mutex_unlock(&input_dev->mutex);
 
 	return 0;
@@ -249,6 +262,11 @@ int fts_tp_resume(void *fts_data)
 	struct fts_ts_data *ts_data = (struct fts_ts_data *)fts_data;
 
 	fts_ts_resume(ts_data->dev);
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	if (tpd_cdev->roi_diffdata_switch) {
+		fts_set_roi_switch(1);
+	}
+#endif
 	return 0;
 }
 
@@ -283,6 +301,7 @@ static int tpd_test_cmd_show(struct ztp_device *cdev, char *buf)
 static int tpd_test_cmd_store(struct ztp_device *cdev)
 {
 	int ret = 0;
+	int retry = 0;
 	struct fts_ts_data *ts_data = fts_data;
 	struct input_dev *input_dev;
 
@@ -292,7 +311,7 @@ static int tpd_test_cmd_store(struct ztp_device *cdev)
 	}
 
 	input_dev = ts_data->input_dev;
-	snprintf(g_fts_ini_filename, sizeof(g_fts_ini_filename), "fts_test_sensor_%02x.ini",
+	snprintf(g_fts_ini_filename, sizeof(g_fts_ini_filename), "fts_test_sensor_%04x.ini",
 			tpd_cdev->ic_tpinfo.module_id);
 	FTS_TEST_DBG("g_fts_ini_filename:%s.", g_fts_ini_filename);
 
@@ -302,17 +321,26 @@ static int tpd_test_cmd_store(struct ztp_device *cdev)
 #if FTS_ESDCHECK_EN
 	fts_esdcheck_switch(ts_data, DISABLE);
 #endif
-
-	ret = fts_enter_test_environment(1);
-	if (ret < 0) {
-		FTS_ERROR("enter test environment fail");
-	} else {
-		fts_test_entry(g_fts_ini_filename);
-	}
-	ret = fts_enter_test_environment(0);
-	if (ret < 0) {
-		FTS_ERROR("enter normal environment fail");
-	}
+	do {
+		fts_tptest_result = 0;
+		ret = fts_enter_test_environment(1);
+		if (ret < 0) {
+			FTS_ERROR("enter test environment fail");
+		} else {
+			fts_test_entry(g_fts_ini_filename);
+		}
+		ret = fts_enter_test_environment(0);
+		if (ret < 0) {
+			FTS_ERROR("enter normal environment fail");
+		}
+		if (ret < 0 || fts_tptest_result) {
+			retry++;
+			FTS_ERROR("TP self test fail, retry:%d", retry);
+			fts_reset_proc(200);
+		} else {
+			break;
+		}		
+	} while (retry < 3);
 #if FTS_ESDCHECK_EN
 	 fts_esdcheck_switch(ts_data, ENABLE);
 #endif
@@ -397,30 +425,37 @@ static int tpd_set_tp_report_rate(struct ztp_device *cdev, int tp_report_rate_le
 		return -EINVAL;
 	} else {
 		/*0:in tp report mode->in 120Hz;
-		  1:in tp report mode->in 240Hz;
-		  2:in tp report mode->in 360Hz;
-		  3:in tp report mode->in 480Hz;
+		  1:in tp report mode->in 180Hz;
+		  2:in tp report mode->in 240Hz;
+		  3:in tp report mode->in 360Hz;
+		  4:in tp report mode->in 480Hz;
 		  */
 		switch (tp_report_rate_level) {
-			case tp_freq_120Hz:
+			case 0:
 				ret = fts_write_reg(FTS_REG_REPORT_RATE, 0x0C);
 				if (ret < 0) {
 					FTS_ERROR("%s write report_rate fail", __func__);
 				}
 				break;
-			case tp_freq_240Hz:
+			case 1:
+				ret = fts_write_reg(FTS_REG_REPORT_RATE, 0x12);
+				if (ret < 0) {
+					FTS_ERROR("%s write report_rate fail", __func__);
+				}
+				break;
+			case 2:
 				ret = fts_write_reg(FTS_REG_REPORT_RATE, 0x18);
 				if (ret < 0) {
 					FTS_ERROR("%s write report_rate fail", __func__);
 				}
 				break;
-			case tp_freq_360Hz:
+			case 3:
 				ret = fts_write_reg(FTS_REG_REPORT_RATE, 0x24);
 				if (ret < 0) {
 					FTS_ERROR("%s write report_rate fail", __func__);
 				}
 				break;
-			case tp_freq_480Hz:
+			case 4:
 				ret = fts_write_reg(FTS_REG_REPORT_RATE, 0x30);
 				if (ret < 0) {
 					FTS_ERROR("%s write report_rate fail", __func__);
@@ -535,11 +570,17 @@ static int fts_charger_state_notify(struct ztp_device *cdev)
 static int tpd_fts_shutdown(struct ztp_device *cdev)
 {
 	struct fts_ts_data *ts_data = (struct fts_ts_data *)fts_data;
+	int ret = 0;
 
 #if FTS_POINT_REPORT_CHECK_EN
 	cancel_delayed_work_sync(&fts_data->prc_work);
 #endif
 	fts_ts_suspend(ts_data->dev);
+	ret = fts_power_source_ctrl(ts_data, DISABLE);
+	if (ret < 0) {
+ 		FTS_ERROR("power off fail, ret=%d", ret);
+	}
+
 	return 0;
 }
 
@@ -787,6 +828,238 @@ static int fts_get_noise(struct ztp_device *cdev)
 	return 0;
 }
 
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+int fts_read_roi_diffdata(void)
+{
+	int ret = 0;
+	u8 diff_pack_num = 0;
+	u8 ex_diff_buf = FTS_EX_DIFF_BUF0;
+	struct ztp_device *cdev = tpd_cdev;
+
+	if (!cdev->roi_diffdata_switch || !cdev->touch_press) {
+		return -EIO;
+	}
+	if (cdev->collect_diffdata_enable) {
+		if (cdev->wait_collect_completion && (cdev->get_diffdata_count >= COLLECT_MAX_COUNT)) {
+			FTS_INFO("collect diffdata complete\n");
+			cdev->wait_collect_completion = false;
+			//complete(&cdev->diffdata_collect_completion);
+			return 0;
+		}
+	}
+	if (cdev->get_diffdata_count == 0) {
+		memset(cdev->roi_diffdata, 0, ROI_DIFFDATA_LENGTH);
+		memset(cdev->collect_diffdata, 0, ROI_DIFFDATA_LENGTH * COLLECT_MAX_COUNT);
+	}
+	if (cdev->get_diffdata_count >= COLLECT_MAX_COUNT) {
+		return 0;
+	}
+	ret = fts_read_reg(FTS_EX_DIFF_PACK_NUM, &diff_pack_num);
+	if (ret < 0) {
+		FTS_ERROR("get diff pack num failed.\n");
+		goto out;
+	}
+	if (diff_pack_num > 0) {
+		ret = fts_read(&ex_diff_buf, 1, cdev->roi_diffdata, ROI_DIFFDATA_LENGTH);
+		if (ret < 0) {
+			FTS_ERROR("read diffdata failed.\n");
+			goto out;
+		}
+	}
+	memcpy(cdev->collect_diffdata + cdev->get_diffdata_count * ROI_DIFFDATA_LENGTH,
+		 cdev->roi_diffdata, ROI_DIFFDATA_LENGTH);
+	tpd_get_hex_diffdata(cdev);
+	cdev->get_diffdata_count++;
+	return 0;
+out:
+	memset(cdev->roi_diffdata, 0, ROI_DIFFDATA_LENGTH);
+	return ret;
+}
+
+static unsigned char *fts_get_roi_diffdata(struct ztp_device *cdev)
+{
+
+	if (!cdev->roi_diffdata_switch) {
+		FTS_ERROR("Get ROI diffdata, switch = OFF\n");
+		return NULL;
+	}
+	if (cdev->collect_diffdata_enable) {
+		FTS_INFO("Get collect_diffdata\n");
+		return (unsigned char *)cdev->collect_diffdata;
+	} else {
+		FTS_INFO("Get ROI diffdata");
+		return (unsigned char *)cdev->roi_diffdata;
+	}
+}
+
+static int fts_get_roi_switch(u8 *roi_switch_value)
+{
+	int ret = 0;
+
+	ret = fts_read_reg(FTS_EX_DIFF_EN, roi_switch_value);
+	if (ret) {
+		FTS_ERROR("read roi switch fail, ret=%d\n", ret);
+		return ret;
+	}
+
+	FTS_INFO("get_roi_switch=%d\n", *roi_switch_value);
+	return ret;
+}
+
+int fts_set_roi_switch(u8 roi_switch)
+{
+	int ret = 0;
+	u8 cmd[2] = {0};
+	int retry = 0;
+	u8 roi_switch_addr = FTS_EX_DIFF_EN;
+	u8 roi_switch_value = 0;
+
+	cmd[0] = roi_switch_addr;
+	cmd[1] = roi_switch;
+	do {
+		ret = fts_write(cmd, 2);
+		if (ret) {
+			FTS_ERROR("write roi switch fail, ret=%d\n", ret);
+		} else {
+			fts_get_roi_switch(&roi_switch_value);
+			if (roi_switch_value == roi_switch) {
+				FTS_INFO("write roi switch success\n");
+				ret = 0;
+				break;
+			}
+		}
+		msleep(20);
+		retry++;
+	} while (retry < 3);
+	if (retry == 3) {
+		ret = 0;
+		FTS_ERROR("write roi switch fail\n");
+	}
+	return ret;
+}
+
+static int fts_send_roi_cmd(struct ztp_device *cdev, enum ts_cmd cmd)
+{
+	int ret;
+
+	FTS_FUNC_ENTER();
+	switch (cmd) {
+	case TS_CMD_READ:
+		ret = fts_get_roi_switch(&cdev->roi_diffdata_switch);
+		if (ret) {
+			FTS_ERROR("get roi_diffdata_switch fail,ret=%d\n", ret);
+		} else {
+			FTS_INFO("roi_diffdata_switch:%d\n", cdev->roi_diffdata_switch);
+		}
+		break;
+
+	case TS_CMD_WRITE:
+		ret = fts_set_roi_switch(!!cdev->roi_diffdata_switch);
+		break;
+
+	default:
+		FTS_ERROR("unknown cmd\n");
+		ret = -EINVAL;
+		break;
+	}
+	return ret;
+}
+#endif
+
+int fts_bbat_test_int_pin(void)
+{
+	int ret;
+
+	ret = enter_factory_mode();
+	if (ret < 0) {
+		FTS_ERROR("failed to enter factory mode,ret=%d\n", ret);
+		return ret;
+    }
+	fts_write_reg(FTS_REG_INT_OUT_TEST, 0);
+	usleep_range(10000, 11000);
+	fts_write_reg(FTS_REG_INT_OUT_TEST, 1);
+	usleep_range(10000, 11000);
+	ret = enter_work_mode();
+	if (ret < 0) {
+		FTS_ERROR("failed to enter work mode,ret=%d\n", ret);
+		return ret;
+	}
+    return ret;
+}
+
+int fts_bbat_test_reset_pin(void)
+{
+	int ret = 0;
+	u8 report_rate = 0;
+	u8 report_rate_old = 0;
+
+	ret = fts_read_reg(FTS_REG_REPORT_RATE, &report_rate);
+	if (ret < 0) {
+		FTS_ERROR("%s read report_rate fail", __func__);
+		return ret;
+	}
+	FTS_INFO("report_rate val:0x%x", report_rate);
+	report_rate_old = report_rate;
+	msleep(20);
+	ret = fts_write_reg(FTS_REG_REPORT_RATE, report_rate + 1);
+	if (ret < 0) {
+		FTS_ERROR("%s write report_rate fail", __func__);
+		return ret;
+	}
+	msleep(20);
+	ret = fts_read_reg(FTS_REG_REPORT_RATE, &report_rate);
+	if (ret < 0) {
+		FTS_ERROR("%s read report_rate fail", __func__);
+		return ret;
+	}
+	FTS_INFO("write report_rate + 1, read report_rate val:0x%x", report_rate);
+	if (report_rate != (report_rate_old + 1)) {
+		FTS_INFO("write  report_rate fail");
+		return -EINVAL;
+	}
+	fts_reset_proc(200);
+	ret = fts_read_reg(FTS_REG_REPORT_RATE, &report_rate);
+	if (ret < 0) {
+		FTS_ERROR("%s read report_rate fail", __func__);
+		return ret;
+	}
+	if (report_rate_old == report_rate) {
+		FTS_INFO("reset test success");
+	} else {
+		FTS_ERROR("reset test fail");
+		ret = -EINVAL;
+	}
+    return ret;
+}
+
+static int fts_bbat_test(struct ztp_device *cdev)
+{
+	int ret = 0;
+
+/*tp int test*/
+	cdev->bbat_test_enter = true;
+	cdev->bbat_int_test = false;
+	cdev->bbat_test_result = 0;
+	reinit_completion(&cdev->bbat_test_completion);
+	ret = fts_bbat_test_int_pin();
+	if (ret) {
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_INT_BAAT_TEST_FAIL;
+	}
+	if (cdev->bbat_int_test == false) {
+		ret = wait_for_completion_timeout(&cdev->bbat_test_completion, msecs_to_jiffies(700));
+		if (!ret) {
+			FTS_ERROR("tp int test fail");
+			cdev->bbat_test_result = TP_INT_BAAT_TEST_FAIL;
+		}
+	}
+/* tp rest test*/
+	ret = fts_bbat_test_reset_pin();
+	if (ret) {
+		cdev->bbat_test_result = cdev->bbat_test_result | TP_RST_BAAT_TEST_FAIL;
+	}
+	cdev->bbat_test_enter = false;
+	return cdev->bbat_test_result;
+}
 
 int tpd_register_fw_class(struct fts_ts_data *data)
 {
@@ -827,15 +1100,20 @@ int tpd_register_fw_class(struct fts_ts_data *data)
 	tpd_cdev->tp_palm_mode_read = tpd_get_palm_mode;
 	tpd_cdev->tp_palm_mode_write = tpd_set_palm_mode;
 	tpd_cdev->get_noise = fts_get_noise;
+#ifdef CONFIG_TOUCHSCREEN_KNUCKLE
+	tpd_cdev->get_roi_diffdata = fts_get_roi_diffdata;
+	tpd_cdev->tp_send_roi_cmd = fts_send_roi_cmd;
+#endif
 	tpd_init_tpinfo(tpd_cdev);
 	tpd_cdev->max_x = data->pdata->x_max;
 	tpd_cdev->max_y = data->pdata->y_max;
+	tpd_cdev->input = data->input_dev;
 	data->sensibility_level = 1;
-	snprintf(g_fts_ini_filename, sizeof(g_fts_ini_filename), "fts_test_sensor_%02x.ini",
+	snprintf(g_fts_ini_filename, sizeof(g_fts_ini_filename), "fts_test_sensor_%04x.ini",
 		tpd_cdev->ic_tpinfo.module_id);
 	tpd_cdev->charger_state_notify = fts_charger_state_notify;
 	queue_delayed_work(tpd_cdev->tpd_wq, &tpd_cdev->charger_work, msecs_to_jiffies(5000));
-
+	tpd_cdev->tp_bbat_test = fts_bbat_test;
 #ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 	get_fts_module_info_from_lcd();
 	zlog_tp_dev.device_name = fts_vendor_name;

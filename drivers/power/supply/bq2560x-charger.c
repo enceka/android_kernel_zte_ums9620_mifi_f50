@@ -312,6 +312,17 @@ static int bq2560x_charger_is_fgu_present(struct bq2560x_charger_info *info)
 	return 0;
 }
 
+#ifdef ZTE_FEATURE_NO_CHARGER
+static int bq2560x_read(struct bq2560x_charger_info *info, u8 reg, u8 *data)
+{
+	return -1;
+}
+
+static int bq2560x_write(struct bq2560x_charger_info *info, u8 reg, u8 data)
+{
+	return 0;
+}
+#else
 static int bq2560x_read(struct bq2560x_charger_info *info, u8 reg, u8 *data)
 {
 	int ret;
@@ -328,6 +339,7 @@ static int bq2560x_write(struct bq2560x_charger_info *info, u8 reg, u8 data)
 {
 	return i2c_smbus_write_byte_data(info->client, reg, data);
 }
+#endif
 
 static int bq2560x_update_bits(struct bq2560x_charger_info *info, u8 reg,
 			       u8 mask, u8 data)
@@ -2006,10 +2018,16 @@ static int bq2560x_charger_probe(struct i2c_client *client,
 	}
 
 	ret = bq2560x_charger_hw_init(info);
+#ifdef ZTE_FEATURE_NO_CHARGER
+	if (ret) {
+		dev_err(dev, "failed to bq2560x_charger_hw_init\n");
+	}
+#else
 	if (ret) {
 		dev_err(dev, "failed to bq2560x_charger_hw_init\n");
 		goto err_psy_usb;
 	}
+#endif
 
 #ifdef ZTE_CHARGER_NO_BATTERY
 	bq2560x_charger_stop_charge(info);

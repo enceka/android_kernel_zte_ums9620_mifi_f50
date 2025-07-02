@@ -91,12 +91,9 @@ int ili_spi_write_then_read_split(struct spi_device *spi,
 				ILI_ERR("spi write error retry:%d.\n", retries + 1);
 			}
 		} while (++retries < SPI_RETRY_NUMBER);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		if (retries >=  SPI_RETRY_NUMBER) {
-			tpd_print_zlog("spi read or write fail, status = %d\n", status);
 			tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
 		}
-#endif
 		break;
 	case SPI_READ:
 		if (n_tx > DMA_TRANSFER_MAX_LEN) {
@@ -142,12 +139,9 @@ int ili_spi_write_then_read_split(struct spi_device *spi,
 				ILI_ERR("spi read fail, status = %d, retry: %d\n", status, retries + 1);
 			}
 		} while (++retries < SPI_RETRY_NUMBER);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		if (retries >=  SPI_RETRY_NUMBER) {
-			tpd_print_zlog("spi read or write fail, status = %d\n", status);
 			tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
 		}
-#endif
 		break;
 	default:
 		ILI_INFO("Unknown command 0x%x\n", cmd);
@@ -223,12 +217,9 @@ int ili_spi_write_then_read_split(struct spi_device *spi,
 				ILI_ERR("spi write error retry:%d.\n", retries + 1);
 			}
 		} while (++retries < SPI_RETRY_NUMBER);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		if (retries >=  SPI_RETRY_NUMBER) {
-			tpd_print_zlog("spi write fail, status = %d\n", status);
 			tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
 		}
-#endif
 		break;
 	case SPI_READ:
 		if (n_tx > DMA_TRANSFER_MAX_LEN) {
@@ -280,12 +271,9 @@ int ili_spi_write_then_read_split(struct spi_device *spi,
 				ILI_ERR("spi read fail, status = %d, retry: %d\n", status, retries + 1);
 			}
 		} while (++retries < SPI_RETRY_NUMBER);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		if (retries >=  SPI_RETRY_NUMBER) {
-			tpd_print_zlog("spi read fail, status = %d\n", status);
 			tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
 		}
-#endif
 		break;
 	default:
 		ILI_INFO("Unknown command 0x%x\n", cmd);
@@ -335,12 +323,9 @@ int ili_spi_write_then_read_direct(struct spi_device *spi,
 				ILI_ERR("spi write error retry:%d.\n", retries + 1);
 			}
 		} while (++retries < SPI_RETRY_NUMBER);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		if (retries >=  SPI_RETRY_NUMBER) {
-			tpd_print_zlog("spi write fail, status = %d\n", status);
 			tpd_zlog_record_notify(TP_SPI_W_ERROR_NO);
 		}
-#endif
 		break;
 	case SPI_READ:
 		if (!atomic_read(&ilits->ice_stat))
@@ -377,12 +362,9 @@ int ili_spi_write_then_read_direct(struct spi_device *spi,
 				ILI_ERR("spi read fail, status = %d, retry: %d\n", status, retries + 1);
 			}
 		} while (++retries < SPI_RETRY_NUMBER);
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 		if (retries >=  SPI_RETRY_NUMBER) {
-			tpd_print_zlog("spi read fail, status = %d\n", status);
 			tpd_zlog_record_notify(TP_SPI_R_ERROR_NO);
 		}
-#endif
 		break;
 	default:
 		ILI_INFO("Unknown command 0x%x\n", cmd);

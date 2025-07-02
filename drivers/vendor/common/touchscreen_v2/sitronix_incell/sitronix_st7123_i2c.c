@@ -83,6 +83,7 @@ static int sitronix_ts_i2c_read(uint16_t addr, uint8_t *data, uint16_t length, v
 	if (retry > I2C_RETRY_COUNT) {
 		sterr("%s: I2C read over retry limit\n", __func__);
 		ret = -EIO;
+		tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
 	}
 
 	return ret;
@@ -112,7 +113,9 @@ static int sitronix_ts_i2c_write(uint16_t addr, uint8_t *data, uint16_t length, 
 	}
 	buf[0] = (addr >> 8) & 0xFF;
 	buf[1] = (addr) & 0xFF;
-	memcpy(&buf[2], &data[0], length);
+	if (length > 0) {
+		memcpy(&buf[2], &data[0], length);
+	}
 
 	for (retry = 1; retry <= I2C_RETRY_COUNT; retry++) {
 		if (i2c_transfer(client->adapter, msg, 1) == 1) {
@@ -126,6 +129,7 @@ static int sitronix_ts_i2c_write(uint16_t addr, uint8_t *data, uint16_t length, 
 	if (retry > I2C_RETRY_COUNT) {
 		sterr("%s: I2C write over retry limit\n", __func__);
 		ret = -EIO;
+		tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
 	}
 
 	return ret;
@@ -158,6 +162,7 @@ static int sitronix_ts_i2c_dread(uint8_t *data, uint16_t length, void *if_data)
 	if (retry > I2C_RETRY_COUNT) {
 		sterr("%s: I2C read over retry limit\n", __func__);
 		ret = -EIO;
+		tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
 	}
 
 	return ret;
@@ -190,6 +195,7 @@ static int sitronix_ts_i2c_dwrite(uint8_t *data, uint16_t length, void *if_data)
 	if (retry > I2C_RETRY_COUNT) {
 		sterr("%s: I2C write over retry limit\n", __func__);
 		ret = -EIO;
+		tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
 	}
 
 	return ret;
@@ -231,6 +237,7 @@ static int sitronix_ts_i2c_aread(uint8_t *tx_buf, uint16_t tx_len, uint8_t *rx_b
 	if (retry > I2C_RETRY_COUNT) {
 		sterr("%s: I2C read over retry limit\n", __func__);
 		ret = -EIO;
+		tpd_zlog_record_notify(TP_I2C_R_ERROR_NO);
 	}
 
 	return 0;
@@ -269,6 +276,7 @@ static int sitronix_ts_i2c_awrite(uint8_t *tx_buf, uint16_t tx_len, void *if_dat
 	if (retry > I2C_RETRY_COUNT) {
 		sterr("%s: I2C write over retry limit\n", __func__);
 		ret = -EIO;
+		tpd_zlog_record_notify(TP_I2C_W_ERROR_NO);
 	}
 
 	return ret;

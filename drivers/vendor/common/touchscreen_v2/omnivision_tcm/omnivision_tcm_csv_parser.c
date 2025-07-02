@@ -4,6 +4,7 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <asm/uaccess.h>
+#include <linux/vmalloc.h>
 
 #include "omnivision_tcm_testing.h"
 
@@ -36,10 +37,11 @@ static void goto_next_line(char **ptr)
 }
 
 static void parse_valid_data(char *buf_start, loff_t buf_size,
-				char *ptr, int32_t* data, int rows)
+				char *ptr, int32_t* data, int rows, int columns)
 {
 	int i = 0;
 	int j = 0;
+	int col_count = 0;
 	char *token = NULL;
 	char *tok_ptr = NULL;
 	char row_data[512] = {0};
@@ -58,12 +60,16 @@ static void parse_valid_data(char *buf_start, loff_t buf_size,
 		memset(row_data, 0, sizeof(row_data));
 		copy_this_line(row_data, ptr);
 		tok_ptr = row_data;
+		col_count = 0;
 		while ((token = strsep(&tok_ptr,", \t\n\r\0"))) {
 			if (strlen(token) == 0)
 				continue;
 
 			data[j] = (int32_t)simple_strtol(token, NULL, STRTOL_LEN);
 			j ++;
+			col_count++;
+			if (col_count >= columns)
+				break;
 		}
 		goto_next_line(&ptr);				//next row
 		if(!ptr || (0 == strlen(ptr))) {
@@ -100,21 +106,22 @@ int ovt_tcm_parse_csvfile(struct ovt_tcm_hcd *tcm_hcd, char *target_name, int32_
 {
 
 	int ret = 0;
+	int fw_size = 0;
 	char *buf = NULL;
-	char *ptr = NULL;	
+	char *ptr = NULL;
 	const struct firmware *fw = NULL;
-	char fwname[50] = { 0 };
 
 	if(target_name == NULL) {
 		ovt_info(ERR_LOG, "ovt tcm csv parser:  target path pointer is NULL\n");
 		return -EPERM;
 	}
+
 	get_ovt_tcm_module_info_from_lcd();
-	snprintf(fwname, sizeof(fwname), "%s%s.csv", OVT_TCM_CSV_NAME, ovt_tcm_vendor_name);
-	ret = request_firmware(&fw, fwname, tcm_hcd->pdev->dev.parent);
+	ret = request_firmware(&fw, ovt_tcm_criteria_csv_name, tcm_hcd->pdev->dev.parent);
 	if (ret == 0) {
 		ovt_info(INFO_LOG,"firmware request success");
-		buf = (char *)kzalloc(fw->size + 1, GFP_KERNEL);
+		buf = vmalloc(fw->size + 1);
+		fw_size = fw->size;
 		ovt_info(INFO_LOG,"firmware size is:%d", fw->size);
 		if (!buf) {
 			ovt_info(ERR_LOG,"buffer kzalloc fail");
@@ -127,8 +134,8 @@ int ovt_tcm_parse_csvfile(struct ovt_tcm_hcd *tcm_hcd, char *target_name, int32_
 		ovt_info(ERR_LOG,"firmware request fail");
 		return -EPERM;
 	}
-	if (fw->size > 0) {
-		//buf[fw->size] = '\0';
+	if (fw_size > 0) {
+		//buf[fw_size] = '\0';
 		ptr = buf;
 		ptr = strstr(ptr, target_name);
 		if (ptr == NULL) {
@@ -147,7 +154,7 @@ int ovt_tcm_parse_csvfile(struct ovt_tcm_hcd *tcm_hcd, char *target_name, int32_
 
 		/*  analyze the data */
 		if (data) {
-			parse_valid_data(buf, fw->size, ptr, data, rows);
+			parse_valid_data(buf, fw_size, ptr, data, rows, columns);
 			print_data(target_name, data,  rows, columns);
 		} else {
 			ovt_info(INFO_LOG, "ovt tcm csv parser:  %s: load %s failed 3!\n", __func__,target_name);
@@ -155,7 +162,7 @@ int ovt_tcm_parse_csvfile(struct ovt_tcm_hcd *tcm_hcd, char *target_name, int32_
 			goto exit_free;
 		}
 	}	else {
-		ovt_info(INFO_LOG, "ovt tcm csv parser:  %s: ret=%d,fw->size=%d\n", __func__, ret, fw->size);
+		ovt_info(INFO_LOG, "ovt tcm csv parser:  %s: ret=%d,fw_size=%d\n", __func__, ret, fw_size);
 		ret = -ENXIO;
 		goto exit_free;
 	}
@@ -164,7 +171,7 @@ exit_free:
 	ovt_info(INFO_LOG, "ovt tcm csv parser: %s exit free\n", __func__);
 	if(buf) {
 		ovt_info(INFO_LOG, "ovt tcm csv parser: kfree buf\n");
-		kfree(buf);
+		vfree(buf);
 		buf = NULL;
 	}
 	return ret;

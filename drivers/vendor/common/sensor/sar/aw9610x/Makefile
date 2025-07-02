@@ -47,4 +47,4 @@ obj-$(CONFIG_SAR_SENSOR_AW9610X) += zte_sar.o
 zte_sar-objs := aw_bin_parse.o aw9610x.o
 
 obj-$(CONFIG_SAR_SENSOR_AW9610X_2) += zte_sar_2.o
-zte_sar_2-objs += aw_bin_parse.o aw9610x_2.o
+zte_sar_2-objs := aw_bin_parse.o aw9610x_2.o

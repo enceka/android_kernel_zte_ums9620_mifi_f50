@@ -580,7 +580,7 @@ static ssize_t himax_sense_on_off_write(char *buf, size_t len)
 	return len;
 }
 
-static int test_irq_pin(void)
+int test_irq_pin(void)
 {
 	struct himax_ts_data *ts = hx_s_ts;
 	int result = NO_ERR;
@@ -902,7 +902,7 @@ static int himax_proc_register_read(struct seq_file *m)
 
 		if (proc_reg_addr_type == 1) {
 			ret = himax_bus_read(proc_reg_addr[0], proc_reg_buf,
-				256);
+				128);
 			if (ret < 0) {
 				E("%s: bus access fail!\n", __func__);
 				return BUS_FAIL;
@@ -913,14 +913,14 @@ static int himax_proc_register_read(struct seq_file *m)
 					proc_reg_addr[1] << 8 |
 					proc_reg_addr[0];
 			hx_s_core_fp._register_read(addr32, proc_reg_buf,
-				256);
+				128);
 		}
 
 		seq_printf(m, "command:  %02X,%02X,%02X,%02X\n",
 			proc_reg_addr[3], proc_reg_addr[2], proc_reg_addr[1],
 			proc_reg_addr[0]);
 
-		for (i = 0; i < 256; i++) {
+		for (i = 0; i < 128; i++) {
 			seq_printf(m, "0x%2.2X ", proc_reg_buf[i]);
 			if ((i % 16) == 15)
 				seq_puts(m, "\n");
@@ -2218,7 +2218,7 @@ static int himax_baseline_show(struct seq_file *s, void *v)
 __CREATE_OREAD_NODE_HX(baseline);
 
 #if defined(HX_RST_PIN_FUNC)
-static void test_rst_pin(void)
+static int test_rst_pin(void)
 {
 	int rst_sts1 = -1;
 	int rst_sts2 = -1;
@@ -2226,6 +2226,7 @@ static void test_rst_pin(void)
 	uint8_t tmp_addr[DATA_LEN_4] = {0};
 	uint8_t tmp_data[DATA_LEN_4] = {0};
 	uint8_t tmp_read[DATA_LEN_4] = {0};
+	int ret = NO_ERR;
 
 	himax_int_enable(0);
 	hx_s_core_fp._sense_off(true);
@@ -2240,8 +2241,13 @@ static void test_rst_pin(void)
 		tmp_addr[3], tmp_addr[2], tmp_addr[1], tmp_addr[0],
 		tmp_read[3], tmp_read[2], tmp_read[1], tmp_read[0]);
 	I("trigger Reset Pin\n");
+#if defined(HX_ZERO_FLASH)
+	I("hx_s_core_fp._ic_reset(3)\n");
+	hx_s_core_fp._ic_reset(3);
+#else
+	I("hx_s_core_fp._ic_reset(0)\n");
 	hx_s_core_fp._ic_reset(0);
-
+#endif
 	usleep_range(20000, 20001);
 	do {
 		hx_parse_assign_cmd(0x900000A8, tmp_addr, DATA_LEN_4);
@@ -2269,14 +2275,19 @@ static void test_rst_pin(void)
 END_FUNC:
 	if (rst_sts1 == 0x05 && rst_sts2 == 0x00)
 		I("%s: TP Reset test OK!\n", __func__);
-	else if (rst_sts1 == 0xFF || rst_sts2 == 0x01)
+	else if (rst_sts1 == 0xFF || rst_sts2 == 0x01) {
 		I("%s: TP Reset test Fail!\n", __func__);
-	else
+		ret++;
+	} else {
 		I("%s, Unknown Fail state1=0x%02X, state2=0x%02X!\n",
 			__func__, rst_sts1, rst_sts2);
+		ret++;
+	}
 
 	hx_s_core_fp._sense_on(0x00);
 	himax_int_enable(1);
+
+	return ret;
 }
 #endif
 

@@ -918,7 +918,7 @@ static int bq25970_get_ibatocp(void * arg, unsigned int *mA)
 		return -1;
 	}
 
-	value = (value & BQ2597X_BAT_OVP_MASK) >> BQ2597X_BAT_OVP_SHIFT;
+	value = (value & BQ2597X_BAT_OCP_MASK) >> BQ2597X_BAT_OCP_SHIFT;
 
 	*mA = value * BQ2597X_BAT_OCP_STEP + BQ2597X_BAT_OCP_BASE_2000MA;
 
@@ -1396,26 +1396,59 @@ static int bq25970_get_chg_type(void *arg, unsigned int *chg_type)
 static int bq25970_get_chg_status(void *arg, unsigned int *abnormal_stat)
 {
 	struct bq25970_device *chip = (struct bq25970_device *)arg;
-	int ret = 0;
-	u8 converter_state = 0;
+	int ret = 0, chg_status = 0;
+	u8 converter_state = 0, vbus_ovp_state = 0, vbus_ovp_flag = 0, ac_ovp_state = 0;
 
 	ret = bq25970_read_byte(chip, BQ2597X_CONVERTER_STATE_REG, &converter_state);
 	if (ret) {
-		bq_err("get_vbusovp_alarm error ret=%d\n", ret);
+		bq_err("get converter_state error ret=%d\n", ret);
 		return -1;
 	}
 
-	if (!chip->chip_is_enable) {
-		*abnormal_stat = 0;
-		goto exit_loop;
+	bq_err("converter_state 0x%02X\n", converter_state);
+
+	ret = bq25970_read_byte(chip, BQ2597X_AC_OVP_REG, &ac_ovp_state);
+	if (ret) {
+		bq_err("get ac_ovp_state error ret=%d\n", ret);
+		return -1;
 	}
 
-	/*0 is normal switching, 1 is not switching, deamon default is normal 0*/
+	ret = bq25970_read_byte(chip, BQ2597X_FLT_STAT_REG, &vbus_ovp_state);
+	if (ret) {
+		bq_err("get vbus_ovp_state error ret=%d\n", ret);
+		return -1;
+	}
 
-	*abnormal_stat = (converter_state & BQ2597X_CONV_STAT_FLAG_MASK) ? 0 : 1;
+	ret = bq25970_read_byte(chip, BQ2597X_FLT_FLAG_REG, &vbus_ovp_flag);
+	if (ret) {
+		bq_err("get vbus_ovp_flag error ret=%d\n", ret);
+		return -1;
+	}
 
-exit_loop:
-	bq_err("switching abnormal_stat %d\n", *abnormal_stat);
+	bq_err("ac_ovp_state %d, vbus_ovp_state %d, vbus_ovp_flag %d\n",
+			!!(ac_ovp_state & BQ2597X_AC_OVP_STAT_MASK),
+			!!(vbus_ovp_state & BQ2597X_BUS_OVP_FLT_STAT_MASK),
+			!!(vbus_ovp_flag & BQ2597X_BUS_OVP_FLT_FLAG_MASK));
+
+	if ((vbus_ovp_state & BQ2597X_BUS_OVP_FLT_STAT_MASK)
+			|| (ac_ovp_state & BQ2597X_AC_OVP_STAT_MASK)
+			|| (vbus_ovp_flag & BQ2597X_BUS_OVP_FLT_FLAG_MASK)) {
+		chg_status |= BIT(SQC_ERR_VBUS_OVP);
+	} else {
+		chg_status &= ~BIT(SQC_ERR_VBUS_OVP);
+	}
+
+	if (chip->chip_is_enable) {
+		if (converter_state & BQ2597X_CONV_STAT_FLAG_MASK) {
+			chg_status &= ~BIT(SQC_ERR_ENGINE_OTP);
+		} else {
+			chg_status |= BIT(SQC_ERR_ENGINE_OTP);
+		}
+	}
+
+	*abnormal_stat = chg_status;
+
+	bq_err("switching abnormal_stat 0x%08X\n", *abnormal_stat);
 
 	return 0;
 }
@@ -1809,6 +1842,7 @@ static int bq25970_probe(struct i2c_client *client,
 	match_table = of_match_node(bq25970_of_match, client->dev.of_node);
 	if (match_table == NULL) {
 		pr_err("bq25970 device tree match not found!\n");
+		ret = -ENODEV;
 		goto bq25970_fail_1;
 	}
 

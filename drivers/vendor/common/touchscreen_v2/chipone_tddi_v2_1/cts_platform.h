@@ -48,6 +48,11 @@
 
 extern bool cts_show_debug_log;
 
+extern ktime_t start_time_avoid;
+extern ktime_t end_time_avoid;
+extern ktime_t delta_time_avoid;
+#define INTERVAL_TIME_AVOID  3
+
 #ifndef LOG_TAG
 #define LOG_TAG         ""
 #endif /* LOG_TAG */
@@ -66,13 +71,22 @@ extern int cts_get_driver_log_redirect_size(void);
 extern void cts_log(int level, const char *fmt, ...);
 
 #define cts_err(fmt, ...)   \
-    cts_log(CTS_DRIVER_LOG_ERROR, "<E>CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__)
+    do { \
+        cts_log(CTS_DRIVER_LOG_ERROR, "[ZTE_LDD_TP]<E>TPD_CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__);\
+        tpd_save_last_log("[ZTE_LDD_TP]<E>TPD_CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__);\
+    } while (0)
 #define cts_warn(fmt, ...)  \
-    cts_log(CTS_DRIVER_LOG_WARN,  "<W>CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__)
+    do { \
+        cts_log(CTS_DRIVER_LOG_WARN,  "[ZTE_LDD_TP]<W>TPD_CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__);\
+        tpd_save_last_log("[ZTE_LDD_TP]<W>TPD_CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__);\
+    } while (0)
 #define cts_info(fmt, ...)  \
-    cts_log(CTS_DRIVER_LOG_INFO,  "<I>CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__)
+    do { \
+        cts_log(CTS_DRIVER_LOG_INFO,  "[ZTE_LDD_TP]<I>TPD_CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__);\
+        tpd_save_last_log("[ZTE_LDD_TP]<I>TPD_CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__);\
+    } while (0)
 #define cts_dbg(fmt, ...)   \
-    cts_log(CTS_DRIVER_LOG_DEBUG, "<D>CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__)
+    cts_log(CTS_DRIVER_LOG_DEBUG, "[ZTE_LDD_TP]<D>TPD_CTS-" LOG_TAG " " fmt"\n", ##__VA_ARGS__)
 
 
 struct cts_device;
@@ -121,10 +135,6 @@ struct cts_platform_data {
     u8 gesture_num;
     u8 gesture_keymap[CFG_CTS_NUM_GESTURE][2];
     bool irq_wake_enabled;
-#endif
-
-#ifdef CONFIG_CTS_CHARGER_DETECT
-	struct notifier_block charger_notifier;
 #endif
 
 #ifdef CONFIG_CTS_PM_FB_NOTIFIER

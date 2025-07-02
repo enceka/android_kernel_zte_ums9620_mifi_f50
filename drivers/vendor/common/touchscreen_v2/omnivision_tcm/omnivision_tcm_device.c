@@ -693,14 +693,14 @@ static struct ovt_tcm_module_cb device_module = {
 
 int device_module_init(void)
 {
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
 
 	return ovt_tcm_add_module(&device_module, true);
 }
 
 void device_module_exit(void)
 {
-	ovt_info(DEBUG_LOG, "%s enter!\n", __func__);
+	ovt_info(INFO_LOG, "%s enter!\n", __func__);
 
 	ovt_tcm_add_module(&device_module, false);
 	wait_for_completion(&device_remove_complete);

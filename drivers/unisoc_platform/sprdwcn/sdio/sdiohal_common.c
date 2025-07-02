@@ -265,6 +265,7 @@ void sdiohal_lock_tx_ws(void)
 {
 	struct sdiohal_data_t *p_data = sdiohal_get_data();
 
+	atomic_or(BIT(SDIOHAL_PM_SEL_TX), &p_data->pm_sel);
 	if (atomic_read(&p_data->flag_suspending))
 		return;
 
@@ -281,15 +282,19 @@ void sdiohal_unlock_tx_ws(void)
 
 	sdiohal_atomic_sub(1, &p_data->tx_wake_flag);
 	if (atomic_read(&p_data->tx_wake_flag))
-		return;
+		goto clear_pm_seltx;
 
 	__pm_relax(p_data->tx_ws);
+
+clear_pm_seltx:
+	atomic_andnot(BIT(SDIOHAL_PM_SEL_TX), &p_data->pm_sel);
 }
 
 void sdiohal_lock_rx_ws(void)
 {
 	struct sdiohal_data_t *p_data = sdiohal_get_data();
 
+	atomic_or(BIT(SDIOHAL_PM_SEL_RX), &p_data->pm_sel);
 	if (atomic_read(&p_data->flag_suspending) ||
 		atomic_read(&p_data->rx_wake_flag))
 		return;
@@ -303,10 +308,13 @@ void sdiohal_unlock_rx_ws(void)
 	struct sdiohal_data_t *p_data = sdiohal_get_data();
 
 	if (!atomic_read(&p_data->rx_wake_flag))
-		return;
+		goto clear_pm_selrx;
 
 	atomic_set(&p_data->rx_wake_flag, 0);
 	__pm_relax(p_data->rx_ws);
+
+clear_pm_selrx:
+	atomic_andnot(BIT(SDIOHAL_PM_SEL_RX), &p_data->pm_sel);
 }
 
 void sdiohal_lock_scan_ws(void)

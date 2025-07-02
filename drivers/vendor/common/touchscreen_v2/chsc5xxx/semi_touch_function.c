@@ -216,9 +216,7 @@ int semi_touch_heart_beat(void)
 		}
 		if (ret != SEMI_DRV_ERR_OK) {
 			/* reset tp + iic detected */
-#ifdef CONFIG_VENDOR_ZTE_LOG_EXCEPTION
 			tpd_zlog_record_notify(TP_ESD_CHECK_ERROR_NO);
-#endif
 			ret = semi_touch_reset_and_detect();
 			check_return_if_fail(ret, NULL);
 
